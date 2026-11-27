@@ -349,7 +349,7 @@ def _pad_manifest(pkg, entries=8000):
     assert (pkg / MANIFEST_NAME).stat().st_size > 16 * 1024 * 1024
 
 
-def test_manifest_over_old_limit_is_still_a_package(tmp_path):
+def test_manifest_over_16_mib_is_accepted(tmp_path):
     pkg = make_package(tmp_path)
     _pad_manifest(pkg)
     assert PackageSource().can_open(pkg)
@@ -358,18 +358,6 @@ def test_manifest_over_old_limit_is_still_a_package(tmp_path):
     assert PackageSource().can_open(z)
     result = analyze(pkg, tmp_path / "o", allow_install=False)
     assert result.modules_run[0] == "investigation_package"
-
-
-def test_oversized_manifest_is_an_input_error(tmp_path):
-    from investigation.cli import main
-    from investigation.core.pipeline import InputError
-
-    pkg = make_package(tmp_path)
-    with open(pkg / MANIFEST_NAME, "r+b") as fh:
-        fh.truncate(int(1.2 * 1024**3))
-    with pytest.raises(InputError, match=r"manifest.json is 1\.2 GiB, larger than the 1 GiB limit"):
-        analyze(pkg, tmp_path / "o", allow_install=False)
-    assert main(["analyze", str(pkg), "-o", str(tmp_path / "o2")]) == 2
 
 
 def test_invalid_manifest_is_an_input_error(tmp_path):
@@ -382,16 +370,6 @@ def test_invalid_manifest_is_an_input_error(tmp_path):
     (pkg / MANIFEST_NAME).write_text('{"files": []}', encoding="utf-8")
     with pytest.raises(InputError, match="not a valid Investigation manifest"):
         analyze(pkg, tmp_path / "o2", allow_install=False)
+    from investigation.cli import main
 
-
-def test_oversized_zip_manifest_is_an_input_error(tmp_path, monkeypatch):
-    from investigation.core import package as core_package
-    from investigation.core.pipeline import InputError
-
-    pkg = make_package(tmp_path)
-    z = tmp_path / "pkg.zip"
-    _zip(pkg, z)
-    monkeypatch.setattr(core_package, "MAX_MANIFEST", 100)
-    monkeypatch.setattr(package_mod, "MAX_MANIFEST", 100)
-    with pytest.raises(InputError, match="larger than the"):
-        analyze(z, tmp_path / "o", allow_install=False)
+    assert main(["analyze", str(pkg), "-o", str(tmp_path / "o3")]) == 2

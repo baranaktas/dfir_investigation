@@ -16,8 +16,8 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterator
 
 from investigation.core.module import ModuleMeta, ModuleType, SourceModule
-from investigation.core.package import (MANIFEST_NAME, MAX_MANIFEST, UNVERIFIED_PREFIX, ManifestError, _unsafe,
-                                        dedup_problem, size_problem, verify_manifest)
+from investigation.core.package import (MANIFEST_NAME, UNVERIFIED_PREFIX, ManifestError, _unsafe,
+                                        dedup_problem, verify_manifest)
 from investigation.core.registry import register
 from investigation.core.source import EvidenceSource
 from investigation.modules.sources import target as target_mod
@@ -49,9 +49,7 @@ def _check_folder_manifest(path: Path) -> bool:
     if not manifest.is_file():
         return False
     try:
-        problem = size_problem(manifest.stat().st_size)
-        if problem is None:
-            problem = _manifest_problem(manifest.read_bytes())
+        problem = _manifest_problem(manifest.read_bytes())
     except OSError as exc:
         problem = f"cannot read {MANIFEST_NAME}: {exc}"
     if problem:
@@ -69,8 +67,7 @@ def _safe_parts(name: str) -> tuple[str, ...]:
 
 
 def _zip_manifest(z: zipfile.ZipFile) -> tuple[str, bytes] | None:
-    """(prefix, manifest bytes): prefix '' if manifest.json is at the zip root, 'dir/' if in the single top folder.
-    Raises ManifestError when a manifest.json is there but too large."""
+    """(prefix, manifest bytes): prefix '' if manifest.json is at the zip root, 'dir/' if in the single top folder."""
     members = {}
     for info in z.infolist():
         parts = _safe_parts(info.filename)
@@ -80,11 +77,8 @@ def _zip_manifest(z: zipfile.ZipFile) -> tuple[str, bytes] | None:
     for prefix in ("", next(iter(tops)) + "/" if len(tops) == 1 else None):
         info = members.get(prefix + MANIFEST_NAME) if prefix is not None else None
         if info is not None:
-            problem = size_problem(info.file_size)
-            if problem:
-                raise ManifestError(problem)
             with z.open(info) as fh:
-                return prefix, fh.read(MAX_MANIFEST + 1)
+                return prefix, fh.read()
     return None
 
 
