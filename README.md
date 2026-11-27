@@ -350,7 +350,7 @@ from the evidence is inserted as plain text, never as HTML.
 
 | Engine | What it does | Rules |
 |---|---|---|
-| Built-in rules | 58 YAML rules over event logs, artifacts and memory, plus 9 command rules over every command source, with threshold, distinct-count and sequence correlation | `investigation/rules/builtin/`; your own in `~/.investigation/rules/*.yaml` |
+| Built-in rules | 117 YAML rules over event logs, artifacts and memory, plus 9 command rules over every command source, with threshold, distinct-count and sequence correlation | `investigation/rules/builtin/`; your own in `~/.investigation/rules/*.yaml` |
 | Sigma | SigmaHQ rules evaluated against the parsed event logs; Security 4688 events are also matched against process-creation rules | The executable includes the SigmaHQ core Windows rules, release r2026-07-01; `investigation rules update` (internet) or `--from-zip` (offline) installs a newer set, which replaces the bundled one. Your own in `~/.investigation/rules/sigma/` |
 | YARA | Scans Temp, Downloads, Desktop, Public, ProgramData, web roots and the Recycle Bin | 7 built-in rules (PHP, ASPX and JSP web shells, Mimikatz, Cobalt Strike, PowerShell download cradles, ransom notes); your own in `~/.investigation/rules/yara/` |
 | IOC | Hashes, IP addresses, domains (including subdomains), URLs and file names anywhere in the timeline; defanged input accepted | `--ioc list.txt` (repeatable) or `~/.investigation/ioc/*.txt` |
@@ -438,8 +438,21 @@ loaded by the analyzer only; the collector runs built-in modules only.
 `scripts/benchmark_evtx.py <samples folder>` analyzes every `.evtx` file of a local copy of
 [EVTX-ATTACK-SAMPLES](https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES) on its own and prints, per ATT&CK
 tactic folder, how many files produced any finding and how many produced a finding of that folder's tactic.
-`-o` sets the results folder (`results.csv` and `results.md`); `--builtin-only` leaves the Sigma rules out.
-The script downloads nothing.
+`-o` sets the results folder (`results.csv` and `results.md`); `--builtin-only` leaves the Sigma rules out;
+`--split train|holdout|all` analyzes a fixed 70% or 30% part of the files (chosen by a hash of the relative path)
+or all of them. The script downloads nothing.
+
+### Detection on EVTX-ATTACK-SAMPLES
+
+Holdout part of EVTX-ATTACK-SAMPLES, measured on 2026-11-27 with the built-in rules and the bundled Sigma rules
+(r2026-07-01):
+
+| Files | Finding with the tactic | Rate | Any finding | Rate |
+|---:|---:|---:|---:|---:|
+| 86 | 28 | 33% | 51 | 59% |
+
+Rules were written using the other 70% of the samples; the 30% shown here were not looked at. The set contains
+attacks only, so it does not measure false positives.
 
 Not tested yet:
 

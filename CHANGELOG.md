@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 58 new event log rules (INV-EVTX-037 to 094) for tunnelled RDP, BITS jobs, AD attribute and audit policy changes, NTDS copies, SQL Server abuse, process injection, UAC bypass, DLL side-loading, LOLBin proxy execution, PsExec and C2 named pipes, WMI consumers and shims; `scripts/benchmark_evtx.py --split` keeps a fixed holdout part of the samples.
 - The executable includes the SigmaHQ core Windows rules (release r2026-07-01), so Sigma runs without `rules update`; a set downloaded with `rules update` replaces the bundled one. The report and `doctor` name the rule source.
 - `scripts/benchmark_evtx.py` measures detection on a local copy of EVTX-ATTACK-SAMPLES.
 - Commands: a "Commands" section in the report and `commands.csv` list every command found in PowerShell
