@@ -240,13 +240,15 @@ def test_log_cleared_only_for_security_channel(tmp_path):
     assert "INV-EVTX-001" not in ids(run(tmp_path / "b", other))
 
 
-def test_explicit_credentials_ignores_machine_account_and_loopback(tmp_path):
+def test_explicit_credentials_ignores_machine_account_on_loopback_only(tmp_path):
     noisy = ev(EventID=4648, SubjectUserName="BEBEK$", TargetUserName="someone@live.com", IpAddress="127.0.0.1")
     assert "INV-EVTX-014" not in ids(run(tmp_path / "a", [noisy]))
-    loopback6 = ev(EventID=4648, SubjectUserName="bob", IpAddress="::1")
-    assert "INV-EVTX-014" not in ids(run(tmp_path / "b", [loopback6]))
-    machine = ev(EventID=4648, SubjectUserName="BEBEK$", IpAddress="10.0.0.5")
-    assert "INV-EVTX-014" not in ids(run(tmp_path / "c", [machine]))
+    noisy6 = ev(EventID=4648, SubjectUserName="BEBEK$", IpAddress="::1")
+    assert "INV-EVTX-014" not in ids(run(tmp_path / "e", [noisy6]))
+    user_loopback = ev(EventID=4648, SubjectUserName="bob", IpAddress="::1")
+    assert "INV-EVTX-014" in ids(run(tmp_path / "b", [user_loopback]))
+    machine_remote = ev(EventID=4648, SubjectUserName="BEBEK$", IpAddress="10.0.0.5")
+    assert "INV-EVTX-014" in ids(run(tmp_path / "c", [machine_remote]))
     real = ev(EventID=4648, SubjectUserName="bob", IpAddress="10.0.0.5")
     assert "INV-EVTX-014" in ids(run(tmp_path / "d", [real]))
 
