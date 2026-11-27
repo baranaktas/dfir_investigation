@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "investigation"
-version = "0.1.0"
+version = "0.1.1"
 description = "Windows incident response: live evidence collection, super-timeline analysis and ATT&CK-mapped reporting"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"

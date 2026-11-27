@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 - 2026-11-27
 
 - Report grouping: findings are one card per rule and key (threat, service, command, image or user) with count, first and last time and sources; identical commands are one row with a count; the timeline opens with a summary of events per artifact and day, and the event rows are one click away. `findings.json`, `events.jsonl`, `timeline.csv` and `commands.csv` stay complete.
 - Events the collection itself caused are listed under "Collection artefacts" in the report: the WinPmem service install whose image path equals the driver path WinPmem reported (recorded in the manifest as `driver_path`; older packages have none), and events of the collector executable whose sha256 equals the one recorded in `manifest.json` (or the pinned WinPmem hash), inside the collection window +-2 minutes. Detections still see every event; a finding made only of such events moves to that section and is listed there. Events that match by name without a hash stay normal and carry a note; shadow copy events are never hidden. `manifest.json` records the collector executable name and sha256.

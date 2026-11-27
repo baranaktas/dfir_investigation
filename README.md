@@ -26,7 +26,7 @@ Python runtime, so nothing has to be installed on the host.
 | Collection | Yes | No |
 | Analysis | Yes (executable or from source) | Yes, from source with Python 3.12 or 3.13 |
 
-> **Status:** version 0.1.0, the first public release. See [Test status](#test-status) for what has been
+> **Status:** version 0.1.1. See [Test status](#test-status) for what has been
 > tested and what has not. Detection accuracy has not been measured against a labelled data set yet.
 
 ---
@@ -68,7 +68,7 @@ NTFS.
 
 ```
 +----------------------------------------+
-| Investigation 0.1.0                    |
+| Investigation 0.1.1                    |
 | Host:    WS-0142                       |
 | Admin:   yes                           |
 | Output:  E:\                           |
