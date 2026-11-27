@@ -44,6 +44,17 @@ def rule_files() -> list[Path]:
     return files
 
 
+def match_file(compiled: Any, data: bytes, path: str) -> list[Any]:
+    """Scan `data` with the file path as the `filepath` external; a path yara cannot take never skips the scan."""
+    clean = path.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    try:
+        return compiled.match(data=data, timeout=TIMEOUT, externals={"filepath": clean})
+    except Exception as exc:
+        if "timeout" in str(exc).casefold():
+            raise
+        return compiled.match(data=data, timeout=TIMEOUT, externals={"filepath": ""})
+
+
 def compile_rules(errors: ErrorSink) -> list[Any]:
     import yara
 
@@ -99,7 +110,7 @@ class YaraScanner(ParserModule):
             matches = []
             for compiled in rules:
                 try:
-                    matches += compiled.match(data=data, timeout=TIMEOUT, externals={"filepath": path})
+                    matches += match_file(compiled, data, path)
                 except Exception as exc:
                     errors(self.meta.name, f"{path}: scan failed: {exc}")
             if not matches:

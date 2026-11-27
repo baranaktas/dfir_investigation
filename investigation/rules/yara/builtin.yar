@@ -103,7 +103,25 @@ rule INV_PowerShell_Download_Cradle
         $pipe = /(iwr|invoke-webrequest|irm|invoke-restmethod)[^\r\n|]{0,400}\|\s*(iex|invoke-expression)/ ascii wide nocase
         $enc = /(^|\s)-e(nc|ncodedcommand)?\s+[A-Za-z0-9+\/=]{16,}/ ascii wide nocase
     condition:
-        filesize < 5MB and not filepath icontains "psreadline" and
+        filesize < 5MB and not (filepath matches /(^|[\\\/])appdata[\\\/]roaming[\\\/]microsoft[\\\/]windows[\\\/]powershell[\\\/]psreadline[\\\/][^\\\/]*_history\.txt$/i) and
+        (($iex and any of ($dl*)) or $pipe or ($enc and any of ($dl*)))
+}
+
+rule INV_PowerShell_Download_Cradle_History
+{
+    meta:
+        description = "PowerShell history (PSReadLine) containing a download-and-execute cradle"
+        severity = "low"
+        mitre = "T1059.001,T1105"
+    strings:
+        $iex = /(^|[^\w-])(iex|invoke-expression)([^\w-]|$)/ ascii wide nocase
+        $dl1 = "DownloadString" ascii wide nocase
+        $dl2 = "DownloadData" ascii wide nocase
+        $dl3 = "Net.WebClient" ascii wide nocase
+        $pipe = /(iwr|invoke-webrequest|irm|invoke-restmethod)[^\r\n|]{0,400}\|\s*(iex|invoke-expression)/ ascii wide nocase
+        $enc = /(^|\s)-e(nc|ncodedcommand)?\s+[A-Za-z0-9+\/=]{16,}/ ascii wide nocase
+    condition:
+        filesize < 5MB and filepath matches /(^|[\\\/])appdata[\\\/]roaming[\\\/]microsoft[\\\/]windows[\\\/]powershell[\\\/]psreadline[\\\/][^\\\/]*_history\.txt$/i and
         (($iex and any of ($dl*)) or $pipe or ($enc and any of ($dl*)))
 }
 
@@ -143,7 +161,7 @@ rule INV_Metasploit_Stager
         mitre = "T1055,T1059"
     strings:
         $x86 = { FC E8 82 00 00 00 60 89 E5 31 C0 64 8B 50 30 8B 52 0C 8B 52 14 }
-        $x64 = { FC 48 83 E4 F0 E8 C0 00 00 00 41 51 41 50 52 51 56 48 31 D2 }
+        $x64 = { FC 48 83 E4 F0 E8 ?? 00 00 00 41 51 41 50 52 51 56 48 31 D2 }
         $met = "metsrv.dll" ascii wide nocase
         $rl = "ReflectiveLoader" ascii
     condition:
