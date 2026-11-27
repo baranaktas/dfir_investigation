@@ -101,3 +101,15 @@ def test_cli_parses_memory_option():
 
     args = build_parser().parse_args(["analyze", "x", "--memory", "m.raw"])
     assert args.memory == "m.raw"
+
+
+def test_console_history_recovered_from_cmdscan_and_consoles(image):
+    events, errors = run(image)
+    consoles = [e for e in events if e.artifact == "memory_console"]
+    assert sorted(e.message for e in consoles) == [
+        "conhost.exe pid=4120: net user backdoor P@ss1 /add",
+        "conhost.exe pid=4120: vssadmin delete shadows /all /quiet",
+        "conhost.exe pid=4120: whoami /all",
+    ]
+    assert all(e.evidence_type.value == "execution" for e in consoles)
+    assert not any("cmdscan" in e or "consoles" in e for e in errors)

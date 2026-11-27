@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,11 +26,14 @@ log = logging.getLogger("investigation")
 VOL_COMMAND: list[str] | None = None
 DEFAULT_TIMEOUT = 1800
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+COMMAND_PROPERTY = re.compile(r"_Command_\d+$")
 
 PLUGINS = [
     ("windows.pslist", None, "memory_process", EvidenceType.EXECUTION,
      "{ImageFileName} pid={PID} ppid={PPID}", "CreateTime", "Process Created"),
     ("windows.cmdline", None, "memory_cmdline", EvidenceType.EXECUTION, "{Process} pid={PID}: {Args}", None, None),
+    ("windows.cmdscan", None, "memory_console", EvidenceType.EXECUTION, "{Process} pid={PID}: {Data}", None, None),
+    ("windows.consoles", None, "memory_console", EvidenceType.EXECUTION, "{Process} pid={PID}: {Data}", None, None),
     ("windows.netscan", None, "memory_network", EvidenceType.NETWORK,
      "{Owner} pid={PID} {Proto} {LocalAddr}:{LocalPort} -> {ForeignAddr}:{ForeignPort} {State}", "Created",
      "Connection Created"),
@@ -113,10 +117,11 @@ def memory_image(source: EvidenceSource, ctx: Context) -> Path | None:
 class MemoryParser(ParserModule):
     meta = ModuleMeta(
         name="memory",
-        description="Memory image analysis with Volatility 3 (pslist/psscan, cmdline, netscan, malfind, svcscan)",
+        description="Memory image analysis with Volatility 3 (pslist/psscan, cmdline, cmdscan/consoles, netscan, malfind, svcscan)",
         type=ModuleType.PARSER,
         requirements=(PythonPackage("volatility3", "volatility3", min_version="2.7"),),
-        artifacts=("memory_process", "memory_cmdline", "memory_network", "memory_malfind", "memory_service"),
+        artifacts=("memory_process", "memory_cmdline", "memory_network", "memory_malfind", "memory_service",
+                   "memory_console"),
     )
 
     def parse(self, source: EvidenceSource, ctx: Context, errors: ErrorSink) -> Iterator[Event]:
@@ -154,6 +159,9 @@ class MemoryParser(ParserModule):
             if plugin == "windows.pslist":
                 pslist_pids = {r.get("PID") for r in rows}
             for row in rows:
+                if artifact == "memory_console" and not (
+                        COMMAND_PROPERTY.search(str(row.get("Property"))) and str(row.get("Data") or "").strip()):
+                    continue
                 yield self._event(row, artifact, etype, template, ts_field, ts_label, captured, f"{src}:{plugin}")
 
         try:
