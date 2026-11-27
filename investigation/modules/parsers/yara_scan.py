@@ -50,7 +50,7 @@ def compile_rules(errors: ErrorSink) -> list[Any]:
     compiled = []
     for f in rule_files():
         try:
-            compiled.append(yara.compile(filepath=str(f)))
+            compiled.append(yara.compile(filepath=str(f), externals={"filepath": ""}))
         except Exception as exc:
             errors("yara", f"rule file {f.name} skipped: {exc}")
     return compiled
@@ -99,7 +99,7 @@ class YaraScanner(ParserModule):
             matches = []
             for compiled in rules:
                 try:
-                    matches += compiled.match(data=data, timeout=TIMEOUT)
+                    matches += compiled.match(data=data, timeout=TIMEOUT, externals={"filepath": path})
                 except Exception as exc:
                     errors(self.meta.name, f"{path}: scan failed: {exc}")
             if not matches:
