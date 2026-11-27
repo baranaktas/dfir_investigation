@@ -141,3 +141,26 @@ def test_escaping_symlink_inside_shadow_skipped(tmp_path, monkeypatch):
         assert any("vss/3" in m for m in ev.access_errors())
     finally:
         ev.close()
+
+
+def test_package_with_shadow_copies_reports_each_event_once(tmp_path):
+    import shutil as sh
+    from tests.modules.test_builtin_rules import FIXTURES
+
+    pkg = make_package(tmp_path)
+    logs = pkg / "files/C/Windows/System32/winevt/Logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    for f in FIXTURES.glob("*.evtx"):
+        sh.copy(f, logs / f.name)
+    write_manifest(pkg, {"hostname": "H"})
+    base = analyze(pkg, tmp_path / "o1", allow_install=False)
+    sh.copytree(pkg / "files" / "C", pkg / "vss" / "12" / "C")
+    sh.copytree(pkg / "files" / "C", pkg / "vss" / "13" / "C")
+    write_manifest(pkg, {"hostname": "H"})
+    both = analyze(pkg, tmp_path / "o2", allow_install=False)
+    assert rows(tmp_path / "o2", "select count(*) from events where tags like '%vss%' and artifact='evtx'")[0][0] > 0
+
+    def counts(result):
+        return {f.rule_id: len(f.events) for f in result.findings if f.rule_id.startswith("INV-EVTX")}
+
+    assert counts(base) and counts(both) == counts(base)
