@@ -120,7 +120,7 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
   <details class="section" id="artefacts">
     <summary>Collection artefacts ({{ artefacts.total }})</summary>
     <div class="body">
-      <p class="muted">Events created by the collection itself (the WinPmem service installed from Temp\\pme*.tmp, and events of the collector executable whose sha256 matches the manifest) inside the collection window. Events that only match by name stay normal events and carry a note. They never raise findings; all of them are in events.jsonl and timeline.csv.</p>
+      <p class="muted">Events created by the collection itself (the pmem service install of the driver path recorded in the manifest, and events of the collector executable whose sha256 matches the manifest) inside the collection window. Events that only match by name stay normal events and carry a note. They never raise findings; all of them are in events.jsonl and timeline.csv.</p>
       {% if artefact_findings %}
       <p>Findings made only of these events were moved here ({{ artefact_findings|length }}):</p>
       <ul>{% for rid, title, sev, n in artefact_findings %}<li><span class="mono">{{ rid }}</span> {{ title }} ({{ sev }}, {{ n }} event(s))</li>{% endfor %}</ul>

@@ -10,7 +10,9 @@ from investigation.core.store import EventStore
 START = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
 END = START + timedelta(minutes=10)
 SHA = "ab" * 32
-COLLECTOR = Collector("investigation.exe", SHA, START, END)
+DRIVER = r"C:\Users\bob\AppData\Local\Temp\pme4F2A.tmp"
+BASE = Collector("investigation.exe", SHA, START, END)
+COLLECTOR = Collector("investigation.exe", SHA, START, END, DRIVER)
 
 
 def ev(minutes=1, artifact="evtx", fields=None, message="m", **kw):
@@ -18,7 +20,7 @@ def ev(minutes=1, artifact="evtx", fields=None, message="m", **kw):
                  source_file="f", message=message, fields=fields or {}, evidence_type=EvidenceType.EXECUTION, **kw)
 
 
-PMEM = {"Channel": "System", "EventID": 7045, "ServiceName": "pmem", "ImagePath": r"C:\Windows\Temp\pmeA1B2.tmp"}
+PMEM = {"Channel": "System", "EventID": 7045, "ServiceName": "pmem", "ImagePath": DRIVER}
 SYSMON = "Microsoft-Windows-Sysmon/Operational"
 
 
@@ -27,15 +29,29 @@ def test_pmem_service_install_with_exact_image_path_is_artefact():
     assert classify(ev(fields={**PMEM, "EventID": 4697}), COLLECTOR) == "artefact"
 
 
-def test_pmem_lookalikes_are_not_suppressed():
-    bad_paths = [r"C:\Users\x\evil.exe", r"C:\Windows\Temp\pme1.tmp & calc", r"C:\Windows\Temp\pmeZZ.tmp",
-                 r"C:\Windows\Temp\pme1.tmp.exe"]
-    for path in bad_paths:
+def test_recorded_driver_path_matches_with_prefix_and_case_differences():
+    for path in ("\\??\\" + DRIVER, DRIVER.upper(), "\\\\?\\" + DRIVER):
+        assert is_artefact(ev(fields={**PMEM, "ImagePath": path}), COLLECTOR)
+
+
+def test_a_different_pme_tmp_path_is_reported_normally():
+    for path in (r"C:\Windows\Temp\pmeA1B2.tmp", r"C:\Users\bob\AppData\Local\Temp\pme9999.tmp",
+                 DRIVER + " & calc", r"C:\Users\x\evil.exe"):
         e = ev(fields={**PMEM, "ImagePath": path})
-        assert not is_artefact(e, COLLECTOR)
-        assert classify(e, COLLECTOR) == "possible"
+        assert classify(e, COLLECTOR) is None
     assert not is_artefact(ev(fields={**PMEM, "ServiceName": "pmem2"}), COLLECTOR)
-    assert not is_artefact(ev(fields={**PMEM, "ServiceName": "evil", "Note": r"Temp\pme1.tmp"}), COLLECTOR)
+    assert not is_artefact(ev(fields={**PMEM, "ServiceName": "PMEM "}), COLLECTOR)
+
+
+def test_older_manifest_without_driver_path_reports_the_service_normally():
+    old = collector_from_manifest(manifest(collector={"name": "investigation.exe", "sha256": SHA}))
+    assert old.driver_path == ""
+    assert classify(ev(fields=PMEM), old) is None
+
+
+def test_driver_path_is_read_from_the_memory_entry_of_the_manifest():
+    data = manifest(files=[{"path": "memory/memory.raw", "driver_path": DRIVER}, {"path": "x", "driver_path": "no"}])
+    assert collector_from_manifest(data).driver_path == DRIVER
 
 
 def test_flattened_text_is_never_matched():
@@ -117,7 +133,7 @@ def manifest(**extra):
 
 def test_collector_from_manifest():
     c = collector_from_manifest(manifest(collector={"name": "investigation.exe", "sha256": SHA.upper()}))
-    assert c == COLLECTOR
+    assert c == BASE
     assert collector_from_manifest(manifest()).name == ""
     assert collector_from_manifest({"format_version": 1}) is None
     assert collector_from_manifest(None) is None
@@ -128,17 +144,16 @@ def test_load_collector_from_folder_and_zip(tmp_path):
     folder.mkdir()
     data = manifest(collector={"name": "investigation.exe", "sha256": SHA})
     (folder / "manifest.json").write_text(json.dumps(data))
-    assert load_collector(folder) == COLLECTOR
+    assert load_collector(folder) == BASE
     z = tmp_path / "pkg.zip"
     with zipfile.ZipFile(z, "w") as zf:
         zf.writestr("pkg/manifest.json", json.dumps(data))
-    assert load_collector(z) == COLLECTOR
+    assert load_collector(z) == BASE
     assert load_collector(tmp_path) is None
 
 
 def test_name_less_manifest_still_marks_the_pmem_service():
     c = collector_from_manifest(manifest())
-    assert is_artefact(ev(fields=PMEM), c)
     assert classify(ev(artifact="bam", fields={"path": r"C:\x\investigation.exe"}), c) is None
 
 
@@ -191,7 +206,41 @@ def test_pipeline_reports_artefacts_without_findings(tmp_path):
                      "collector": {"name": "investigation.exe", "sha256": SHA}, "files": []}
     (pkg / "manifest.json").write_text(json.dumps(manifest_data))
     result = analyze(pkg, out, profile="triage")
-    assert result.collector == COLLECTOR
+    assert result.collector == BASE
     assert (out / "report.html").is_file()
     assert "Collection artefacts (0)" in (out / "report.html").read_text(encoding="utf-8")
     assert json.loads((out / "findings.json").read_text())["collection_artefacts"] == 0
+
+
+def test_verified_pmem_install_becomes_the_info_finding_in_the_artefact_section(tmp_path):
+    from investigation.core.artefacts import split_findings
+    from investigation.core.requirements import Context
+    from investigation.modules.detections.builtin import BuiltinRules
+
+    store = EventStore(tmp_path / "db")
+    store.add_many(mark([ev(fields=PMEM)], COLLECTOR))
+    found = list(BuiltinRules().detect(store, Context()))
+    kept, moved = split_findings(found)
+    assert [f.rule_id for f in moved] == ["INV-EVTX-004a"] and moved[0].severity.name == "INFO"
+    assert kept == []
+
+
+def test_other_pme_tmp_install_stays_a_finding(tmp_path):
+    from investigation.core.artefacts import split_findings
+    from investigation.core.requirements import Context
+    from investigation.modules.detections.builtin import BuiltinRules
+
+    other = {**PMEM, "ImagePath": r"C:\Users\bob\AppData\Local\Temp\pme0001.tmp"}
+    store = EventStore(tmp_path / "db")
+    store.add_many(mark([ev(fields=other)], COLLECTOR))
+    kept, moved = split_findings(list(BuiltinRules().detect(store, Context())))
+    assert moved == [] and [f.rule_id for f in kept] == ["INV-EVTX-004a"]
+
+
+def test_winpmem_output_reports_the_driver_path():
+    from investigation.modules.collectors.memory import WinPmemRun
+
+    run = WinPmemRun()
+    run.feed("Driver Unloaded.\n")
+    run.feed(f"Extracting driver to {DRIVER}\n")
+    assert run.driver_path == DRIVER

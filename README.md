@@ -311,8 +311,9 @@ always uses `full`.
   "Other"). One card per rule and key (threat name, service name, command, image path or user): it shows
   the severity, rule ID, ATT&CK techniques, the number of events, first and last time, the distinct
   sources, a description, an analyst note and up to 50 of its events; all events are in `findings.json`.
-- **Collection artefacts**: events the collection itself caused (the WinPmem service installed from
-  `Temp\pme<hex>.tmp` and events of the collector executable whose sha256 matches `manifest.json`, inside the
+- **Collection artefacts**: events the collection itself caused (the pmem service install whose image
+  path equals the driver path WinPmem reported, recorded in the manifest as `driver_path` (older packages have
+  none), and events of the collector executable whose sha256 matches `manifest.json`, inside the
   collection window plus or minus two minutes). Detections still see them; a finding made only of such
   events is moved here and listed. Events that match the collector's name without a hash stay normal and
   carry a note, and shadow copy events are never hidden.

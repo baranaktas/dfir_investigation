@@ -20,8 +20,6 @@ MAX_WINDOW = timedelta(hours=24)
 PROCESS_FIELDS = ("Image", "NewProcessName", "ProcessName", "SourceImage", "path", "filename", "prefetch",
                   "Application")
 PMEM_SERVICE_EVENT_IDS = {"7045", "4697"}
-PMEM_IMAGE_PATH = re.compile(
-    r"^(?:\\\?\?\\)?(?:[A-Za-z]:|%[A-Za-z]+%)?(?:\\[^\\]+)*\\Temp\\pme[0-9A-Fa-f]+\.tmp$", re.IGNORECASE)
 SHA256 = re.compile(r"(?<![0-9a-fA-F])([0-9a-fA-F]{64})(?![0-9a-fA-F])")
 PREFETCH_NAME = re.compile(r"^(?P<exe>.+?)-[0-9A-Fa-f]{8}\.pf$")
 POSSIBLE_TAG = "possible_collection_artefact"
@@ -37,6 +35,7 @@ class Collector:
     sha256: str
     start: datetime
     end: datetime
+    driver_path: str = ""
 
     @property
     def window(self) -> tuple[datetime, datetime]:
@@ -69,6 +68,21 @@ def _read_manifest(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def _driver_path(manifest: dict) -> str:
+    for entry in manifest.get("files") or []:
+        if isinstance(entry, dict) and entry.get("path") == "memory/memory.raw" and entry.get("driver_path"):
+            return str(entry["driver_path"]).strip()
+    return ""
+
+
+def normalise_path(value: Any) -> str:
+    text = str(value or "").strip().strip('"')
+    for prefix in ("\\??\\", "\\\\?\\"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+    return text.casefold()
+
+
 def collector_from_manifest(manifest: dict | None, note: Callable[[str], None] | None = None) -> Collector | None:
     """The collector described by a manifest, or None when the manifest has no usable window: a window that ends
     before it starts or lasts longer than MAX_WINDOW is not trusted, so nothing is treated as an artefact."""
@@ -83,7 +97,8 @@ def collector_from_manifest(manifest: dict | None, note: Callable[[str], None] |
         return None
     info = manifest.get("collector")
     info = info if isinstance(info, dict) else {}
-    return Collector(str(info.get("name") or "").strip(), str(info.get("sha256") or "").strip().lower(), start, end)
+    return Collector(str(info.get("name") or "").strip(), str(info.get("sha256") or "").strip().lower(), start, end,
+                     _driver_path(manifest))
 
 
 def load_collector(input_path: Path, note: Callable[[str], None] | None = None) -> Collector | None:
@@ -130,14 +145,17 @@ def _is_pmem_service(event: Event) -> bool:
     return str(event.fields.get("ServiceName") or "") == PMEM_NAME
 
 
-def _pmem_service_exact(event: Event) -> bool:
-    return _is_pmem_service(event) and PMEM_IMAGE_PATH.fullmatch(str(event.fields.get("ImagePath") or "")) is not None
+def _pmem_service_exact(event: Event, collector: Collector) -> bool:
+    """The service install of the driver path WinPmem reported while collecting (recorded in the manifest)."""
+    if not collector.driver_path or str(event.fields.get("ServiceName") or "") != PMEM_NAME:
+        return False
+    return normalise_path(event.fields.get("ImagePath")) == normalise_path(collector.driver_path)
 
 
 def classify(event: Event, collector: Collector | None) -> str | None:
     """"artefact" for an event the collection itself created, "possible" for one that only matches by name,
     None for a normal event. An artefact lies inside the collection window (+-2 minutes) and is either the
-    WinPmem service install with an ImagePath of the form Temp\\pme<hex>.tmp, or an event of the collector
+    pmem service install whose ImagePath equals the driver path recorded in the manifest, or an event of the collector
     executable (same name) whose sha256 equals the manifest's collector hash or the pinned WinPmem hash.
     A name match without a hash is never suppressed. Volume shadow copy events are never suppressed."""
     if collector is None or "no_timestamp" in event.tags:
@@ -146,7 +164,7 @@ def classify(event: Event, collector: Collector | None) -> str | None:
     if not start <= event.timestamp <= end:
         return None
     if _is_pmem_service(event):
-        return "artefact" if _pmem_service_exact(event) else "possible"
+        return "artefact" if _pmem_service_exact(event, collector) else None
     wp_name, wp_hash = _winpmem_name_and_hash()
     pinned = {h for h in (collector.sha256, wp_hash) if h}
     names = {wp_name} | ({collector.name.casefold()} if collector.name and collector.sha256 else set())

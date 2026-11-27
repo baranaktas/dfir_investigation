@@ -130,6 +130,7 @@ class X64(Requirement):
 
 
 _MAX_PHYS = re.compile(r"max_physical_memory_\s*[:=]?\s*(0x[0-9a-fA-F]+|\d+)")
+_DRIVER = re.compile(r"extracting driver to\s+(.+?)\s*$", re.IGNORECASE)
 _PROGRESS = re.compile(r"^\s*(\d+)%\s*(?:0x[0-9a-fA-F]+)?\s*(\S*)")
 
 
@@ -141,6 +142,7 @@ class WinPmemRun:
         self.expected: int | None = None
         self.percent = 0
         self.unreadable = 0
+        self.driver_path = ""
         self.lines: list[str] = []
 
     def feed(self, line: str) -> bool:
@@ -152,6 +154,9 @@ class WinPmemRun:
         self.lines.append(text)
         if len(self.lines) > 50:
             del self.lines[0]
+        d = _DRIVER.search(text)
+        if d:
+            self.driver_path = d.group(1).strip().strip('"')
         m = _MAX_PHYS.search(text)
         if m:
             self.expected = int(m.group(1), 0)
@@ -230,6 +235,8 @@ class MemoryWinPmem(CollectorModule):
             "tool": WINPMEM_NAME, "tool_sha256": WINPMEM_SHA256,
         }
         detail = f"{size / 1024 ** 3:.1f} GiB"
+        if run.driver_path:
+            extra["memory/memory.raw"]["driver_path"] = run.driver_path
         if run.unreadable:
             extra["memory/memory.raw"]["unreadable_pages"] = run.unreadable
         if run.code != 0:
