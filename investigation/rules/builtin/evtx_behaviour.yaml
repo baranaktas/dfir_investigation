@@ -1,0 +1,628 @@
+- id: INV-EVTX-037
+  title: RDP connection through a local tunnel
+  severity: high
+  mitre: [T1572, T1021.001]
+  description: An RDP connection was accepted from the loopback address (RemoteConnectionManager 1149). RDP reaches 127.0.0.1 or ::1 only through a port forward (plink, ngrok, netsh portproxy, SSH tunnel).
+  note: Look for the tunnelling tool in process creation logs around this time and for the real source in firewall or proxy logs.
+  match: {EventID: 1149, Channel: Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational}
+  regex:
+    Param3: ['^(127\.|::1$|0:0:0:0:0:0:0:1$|localhost$)']
+
+- id: INV-EVTX-038
+  title: RDP logon from the loopback address
+  severity: high
+  mitre: [T1572, T1021.001]
+  description: RemoteInteractive logon (4624 type 10) whose source address is the loopback address - RDP over a tunnel.
+  note: Look for the tunnelling tool (plink, ngrok, chisel, netsh portproxy) on this host.
+  match: {EventID: 4624, LogonType: 10}
+  regex:
+    IpAddress: ['^(127\.|::1$|0:0:0:0:0:0:0:1$)']
+
+- id: INV-EVTX-039
+  title: DSRM administrator password set
+  severity: high
+  mitre: [T1098]
+  description: The Directory Services Restore Mode administrator password was set on a domain controller (4794). With DsrmAdminLogonBehavior changed it gives a hidden local admin logon on the DC.
+  note: Confirm with the domain admins that the change was planned; check HKLM\System\CurrentControlSet\Control\Lsa\DsrmAdminLogonBehavior.
+  match: {EventID: 4794, Channel: Security}
+
+- id: INV-EVTX-040
+  title: Auditing removed from the audit policy
+  severity: medium
+  mitre: [T1562.002]
+  description: The system audit policy was changed so that success or failure auditing was removed (4719 with %%8449 or %%8451).
+  note: A Group Policy refresh can also do this; compare with the domain audit policy.
+  match: {EventID: 4719, Channel: Security}
+  contains: {AuditPolicyChanges: ["%%8449", "%%8451"]}
+
+- id: INV-EVTX-041
+  title: Service principal name added to a user account
+  severity: high
+  mitre: [T1558.003, T1098]
+  description: The servicePrincipalName attribute of a user object was changed (5136). Adding an SPN to a user makes it kerberoastable (targeted Kerberoasting).
+  note: Service accounts get SPNs during software setup; any other user should not.
+  match: {EventID: 5136, Channel: Security, ObjectClass: user, AttributeLDAPDisplayName: servicePrincipalName}
+
+- id: INV-EVTX-042
+  title: Sensitive Active Directory attribute changed
+  severity: high
+  mitre: [T1098, T1134.005]
+  description: A directory attribute used for delegation, shadow credentials, SID history or logon scripts was changed (5136).
+  note: Windows Hello for Business writes msDS-KeyCredentialLink during enrolment; other writes need an explanation.
+  match:
+    EventID: 5136
+    Channel: Security
+    AttributeLDAPDisplayName: [msDS-AllowedToActOnBehalfOfOtherIdentity, msDS-KeyCredentialLink, msDS-AllowedToDelegateTo,
+                               sIDHistory, scriptPath]
+
+- id: INV-EVTX-043
+  title: Group Policy object changed
+  severity: low
+  mitre: [T1484.001]
+  description: An attribute of a Group Policy container was changed (5136). Attackers change GPOs to push tasks, scripts or settings to many hosts.
+  note: Admins edit GPOs routinely; check who made the change and what the GPO now deploys.
+  match: {EventID: 5136, Channel: Security, ObjectClass: groupPolicyContainer}
+
+- id: INV-EVTX-044
+  title: Scheduled task with a suspicious action
+  severity: high
+  mitre: [T1053.005]
+  description: A scheduled task was created or updated (4698/4702) whose action runs a shell, script host or LOLBin, or a file in a user-writable folder.
+  note: Tasks under \Microsoft\Windows\ are skipped; check the task XML in the event.
+  match: {EventID: [4698, 4702], Channel: Security}
+  contains:
+    TaskContent|TaskContentNew: ["<command>cmd", "cmd.exe", "powershell", "pwsh", "mshta", "wscript", "cscript", "rundll32",
+                                 "regsvr32", "certutil", "bitsadmin", "\\appdata\\", "\\temp\\", "\\users\\public\\",
+                                 "\\programdata\\", "\\perflogs\\"]
+  not_regex:
+    TaskName: ['^\\Microsoft\\Windows\\']
+
+- id: INV-EVTX-045
+  title: BITS job copies a local or network file
+  severity: high
+  mitre: [T1197]
+  description: A BITS transfer started (Bits-Client 59) whose source is a local path or a UNC path instead of a web URL - a BITS job used for persistence or to stage files.
+  note: bitsadmin /addfile with a local path and /SetNotifyCmdLine is a known persistence trick; list jobs with bitsadmin /list /allusers /verbose.
+  match: {EventID: 59, Channel: Microsoft-Windows-Bits-Client/Operational}
+  regex:
+    url: ['^([a-z]:\\|\\\\|file:)']
+
+- id: INV-EVTX-046
+  title: BITS job downloads a program or archive from an unusual host
+  severity: medium
+  mitre: [T1197, T1105]
+  description: A BITS transfer started (Bits-Client 59) that downloads an executable, script or archive from a host that is not a common software vendor or update service.
+  note: Check the job name and the requesting process; updaters of less common vendors also use BITS.
+  match: {EventID: 59, Channel: Microsoft-Windows-Bits-Client/Operational}
+  regex:
+    url: ['^https?://[^/]+/[^?]*\.(exe|dll|ps1|bat|cmd|vbs|js|hta|scr|msi|7z|zip|rar|bin)(\?|$)']
+  not_regex:
+    url: ['^https?://([^/]*\.)?(microsoft\.com|windowsupdate\.com|windows\.com|msn\.com|live\.com|sfx\.ms|office\.com|office\.net|onenote\.net|gvt1\.com|google\.com|googleapis\.com|mozilla\.net|mozilla\.org|adobe\.com|akamaized\.net|msedge\.net|azureedge\.net|bing\.com|xboxlive\.com|dell\.com|hp\.com|lenovo\.com|nvidia\.com|intel\.com)(:\d+)?/']
+
+- id: INV-EVTX-047
+  title: Copy of the Active Directory database opened
+  severity: critical
+  mitre: [T1003.003]
+  description: The ESE engine opened or detached an ntds.dit outside its normal location (ESENT 216/325/326/327) - ntdsutil IFM, a shadow copy or a copied database being read to dump domain hashes.
+  note: ntdsutil "ac i ntds" ifm creates such a copy; find who ran it and where the copy went.
+  match: {EventID: [216, 325, 326, 327], Provider_Name: ESENT}
+  contains: {Data: ["ntds.dit"]}
+  regex:
+    Data: ['(\$snap_|harddiskvolumeshadowcopy|\\users\\|\\temp\\|\\programdata\\|\\perflogs\\|\\windows\\temp\\)']
+
+- id: INV-EVTX-048
+  title: SQL Server password guessing
+  severity: high
+  mitre: [T1110]
+  description: 10 or more failed SQL Server logons (18456) on one server within 5 minutes.
+  note: The client address is in the event text; a misconfigured application can also do this.
+  match: {EventID: 18456, Channel: Application}
+  regex:
+    Provider_Name: ['^mssql']
+  correlate: {type: threshold, count: 10, window_seconds: 300, group_by: Computer}
+
+- id: INV-EVTX-049
+  title: SQL Server xp_cmdshell enabled or used
+  severity: high
+  mitre: [T1505.001, T1059.003]
+  description: The xp_cmdshell option was changed (15457) or a call to xp_cmdshell was blocked (15281). xp_cmdshell runs operating system commands as the SQL Server service.
+  note: Check the SQL Server audit and the service account's process creations.
+  match: {EventID: [15457, 15281], Channel: Application}
+  contains: {Data: ["xp_cmdshell"]}
+  regex:
+    Provider_Name: ['^mssql']
+
+- id: INV-EVTX-050
+  title: Database server spawned a shell
+  severity: high
+  mitre: [T1505.001, T1059.003]
+  description: The SQL Server process started a shell or script host - xp_cmdshell or a malicious CLR/agent job.
+  note: 'Check the SQL Server agent jobs, CLR assemblies and whether xp_cmdshell is enabled.'
+  process_creation: true
+  endswith:
+    ParentImage: ["\\sqlservr.exe"]
+    Image: ["\\cmd.exe", "\\powershell.exe", "\\pwsh.exe", "\\wscript.exe", "\\cscript.exe", "\\mshta.exe", "\\rundll32.exe",
+            "\\regsvr32.exe", "\\certutil.exe", "\\bitsadmin.exe"]
+
+- id: INV-EVTX-051
+  title: Process opened from code outside any module
+  severity: high
+  mitre: [T1055]
+  description: A process was opened with write or full access from code that does not belong to a loaded module (Sysmon 10 CallTrace with UNKNOWN frames) - shellcode or injected code at work.
+  note: .NET just-in-time code can also show UNKNOWN frames; check SourceImage.
+  match:
+    EventID: 10
+    Channel: Microsoft-Windows-Sysmon/Operational
+    GrantedAccess: ["0x1fffff", "0x1f3fff", "0x1f1fff", "0x1f0fff", "0x147a", "0x143a", "0x1478", "0x1438", "0x1f2fff"]
+  contains: {CallTrace: ["unknown("]}
+
+- id: INV-EVTX-052
+  title: Process opened for injection by a program in a user folder
+  severity: medium
+  mitre: [T1055]
+  description: A program in a user-writable folder opened another process with the rights needed to write memory and start threads (Sysmon 10 GrantedAccess 0x147a/0x143a/0x1f3fff).
+  note: Some games, overlays and remote-support tools do this; check the source program.
+  match:
+    EventID: 10
+    Channel: Microsoft-Windows-Sysmon/Operational
+    GrantedAccess: ["0x147a", "0x143a", "0x1478", "0x1438", "0x1f3fff", "0x1f1fff"]
+  regex:
+    SourceImage: ['\\(users\\public|appdata|temp|downloads|desktop|programdata|perflogs)\\']
+
+- id: INV-EVTX-053
+  title: Remote thread created by a program outside system folders
+  severity: high
+  mitre: [T1055]
+  description: A program outside the Windows and Program Files folders started a thread in another process (Sysmon 8 CreateRemoteThread) - classic process injection.
+  note: 'Look at what the source program is, how it got there and what the target process did afterwards.'
+  match: {EventID: 8, Channel: Microsoft-Windows-Sysmon/Operational}
+  not_regex:
+    SourceImage: ['^c:\\(windows|program files|program files \(x86\))\\']
+
+- id: INV-EVTX-054
+  title: Remote thread created in LSASS
+  severity: critical
+  mitre: [T1055, T1003.001]
+  description: A thread was started inside lsass.exe by another process (Sysmon 8) - credential theft by injection.
+  note: 'Treat all credentials used on this host as stolen; check the source program.'
+  match: {EventID: 8, Channel: Microsoft-Windows-Sysmon/Operational}
+  endswith: {TargetImage: ["\\lsass.exe"]}
+
+- id: INV-EVTX-055
+  title: One program opened many processes
+  severity: medium
+  mitre: [T1057]
+  description: A program outside the Windows and Program Files folders opened 10 or more different processes within 2 minutes (Sysmon 10) - process listing by an implant (ps) or a scan for a process to inject into.
+  note: 'Security and monitoring tools also enumerate processes; check the source program''s signature and origin.'
+  match: {EventID: 10, Channel: Microsoft-Windows-Sysmon/Operational}
+  not_regex:
+    SourceImage: ['^c:\\(windows|program files|program files \(x86\))\\']
+  correlate: {type: distinct, field: TargetImage, count: 10, window_seconds: 120, group_by: SourceImage}
+
+- id: INV-EVTX-056
+  title: Debug privilege enabled by a program outside system folders
+  severity: high
+  mitre: [T1134]
+  description: SeDebugPrivilege was enabled in a process outside the Windows and Program Files folders (4703). Credential dumpers and injectors need it to open protected processes.
+  note: 'Check what the program is and whether it opened lsass.exe or another protected process next.'
+  match: {EventID: 4703, Channel: Security}
+  contains: {EnabledPrivilegeList: ["SeDebugPrivilege"]}
+  not_regex:
+    ProcessName: ['^c:\\(windows|program files|program files \(x86\))\\']
+
+- id: INV-EVTX-057
+  title: Autorun registry value pointing to a suspicious location
+  severity: medium
+  mitre: [T1547.001]
+  description: A Run/RunOnce or Winlogon value was set (Sysmon 13) whose command lives in a user-writable folder or starts a script host or LOLBin, or the writer itself runs from such a folder.
+  note: Some per-user software installs under AppData\Roaming; check the publisher of the target file.
+  match: {EventID: 13, Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetObject: ['\\currentversion\\(run|runonce|runonceex|runservices|runservicesonce|policies\\explorer\\run)\\', '\\winlogon\\(userinit|shell)$']
+    Details|Image: ['\\(users\\public|appdata\\roaming|appdata\\local\\temp|temp|downloads|programdata|perflogs|windows\\tasks)\\',
+                    '(rundll32|regsvr32|mshta|wscript|cscript|powershell|pwsh)(\.exe)?\b', 'cmd(\.exe)?"?\s+/c']
+
+- id: INV-EVTX-058
+  title: UAC bypass through a hijacked shell command
+  severity: high
+  mitre: [T1548.002]
+  description: A per-user shell command handler that auto-elevating Windows programs read was set (ms-settings, mscfile, exefile, Folder, Launcher.SystemSettings, App Paths\control.exe, Environment\windir) - fodhelper, eventvwr, sdclt, changepk and similar UAC bypasses.
+  note: 'Look at the value written and the auto-elevating program started right after it.'
+  match: {EventID: [12, 13, 14], Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetObject: ['^hku\\[^\\]+(_classes|\\software\\classes)\\(ms-settings|mscfile|exefile|folder|launcher\.systemsettings|appx[a-z0-9]{20,})\\shell\\(open|runas)\\command',
+                   '^hku\\[^\\]+\\software\\microsoft\\windows\\currentversion\\app paths\\control\.exe',
+                   '^hku\\[^\\]+\\environment\\windir$']
+
+- id: INV-EVTX-059
+  title: User Account Control disabled in the registry
+  severity: high
+  mitre: [T1548.002, T1562.001]
+  description: EnableLUA or ConsentPromptBehaviorAdmin was set to 0 (Sysmon 13) - UAC is switched off or admins are elevated without a prompt.
+  note: 'Set the value back to 1 and find which account and process changed it.'
+  match: {EventID: 13, Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetObject: ['\\policies\\system\\(enablelua|consentpromptbehavioradmin)$']
+    Details: ['^dword \(0x00000000\)$']
+
+- id: INV-EVTX-060
+  title: User Account Control disabled from the command line
+  severity: high
+  mitre: [T1548.002, T1562.001]
+  description: reg.exe or PowerShell set EnableLUA or ConsentPromptBehaviorAdmin to 0.
+  note: 'Set the value back to 1 and find who ran the command.'
+  process_creation: true
+  regex:
+    CommandLine: ['(enablelua|consentpromptbehavioradmin).*(/d\s+"?(0x)?0+\b|-value\s+0\b)']
+
+- id: INV-EVTX-061
+  title: Anonymous named pipe or share access enabled
+  severity: high
+  mitre: [T1021.002, T1112]
+  description: The NullSessionPipes or NullSessionShares list of the SMB server was changed (Sysmon 13) - lets unauthenticated clients reach a pipe or share (Turla-style backdoor pipes).
+  note: 'Compare with the default list (usually empty) and find the program behind the added pipe.'
+  match: {EventID: 13, Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetObject: ['\\services\\lanmanserver\\parameters\\(nullsessionpipes|nullsessionshares)$']
+
+- id: INV-EVTX-062
+  title: IEAK pending GPO registered
+  severity: high
+  mitre: [T1547]
+  description: A value under Software\Microsoft\IEAK\GroupPolicy\PendingGPOs was set (Sysmon 13). Explorer runs the referenced INF section at the next logon - a little-known autostart.
+  note: 'Look at the INF file referenced by the PathN value.'
+  match: {EventID: [12, 13], Channel: Microsoft-Windows-Sysmon/Operational}
+  contains: {TargetObject: ["\\software\\microsoft\\ieak\\grouppolicy\\pendinggpos"]}
+
+- id: INV-EVTX-063
+  title: Update Orchestrator task command set to a shell
+  severity: high
+  mitre: [T1068]
+  description: A UScheduler command line of the Windows Update Orchestrator was set to a shell or a user-writable path (Sysmon 13) - CVE-2020-1313 style privilege escalation.
+  note: 'Check the registered command and the files it creates; the vulnerability is fixed by the 2020-06 updates.'
+  match: {EventID: 13, Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetObject: ['\\windowsupdate\\orchestrator\\uscheduler\\[^\\]+\\(cmdline|startarg|pausearg)$']
+    Details: ['(cmd(\.exe)?|powershell|pwsh|rundll32|mshta|wscript|cscript)\b', '\\(users|temp|programdata)\\', '^/c\s']
+
+- id: INV-EVTX-064
+  title: Registry symbolic link created by a user program
+  severity: high
+  mitre: [T1068]
+  description: A SymbolicLinkValue was written (Sysmon 13) by a program outside the Windows folder - registry symlinks are used to redirect privileged writes (CVE-2020-1377 and similar).
+  note: 'Look at the link target and at the program that wrote it.'
+  match: {EventID: 13, Channel: Microsoft-Windows-Sysmon/Operational}
+  endswith: {TargetObject: ["\\symboliclinkvalue"]}
+  not_regex:
+    Image: ['^c:\\windows\\']
+
+- id: INV-EVTX-065
+  title: Windows DLL name outside the system folders
+  severity: high
+  mitre: [T1574.002]
+  description: A DLL named like a Windows library that is commonly side-loaded or used in UAC bypasses (cryptbase, version, winmm, ntwdblib, wwlib, ...) was loaded or written outside the system folders (Sysmon 7/11).
+  note: Applications occasionally ship their own copy of such a DLL in Program Files, which is not reported.
+  match: {EventID: [7, 11], Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    ImageLoaded|TargetFilename: ['\\(cryptbase|ntwdblib|version|winmm|dwmapi|uxtheme|wwlib|cryptsp|wbemcomn|profapi|dxgi|propsys|wtsapi32|sspicli|secur32|edgegdi|netutils|oleacc|duser|dui70|xmllite|wlbsctrl|fveapi|srvcli|nvsmartmax|onkeytoken_keb)\.dll$']
+  not_regex:
+    ImageLoaded|TargetFilename: ['^c:\\windows\\(system32|syswow64)\\[^\\]+$', '^c:\\windows\\winsxs\\', '^c:\\program files( \(x86\))?\\',
+                                 '^c:\\windows\\(microsoft\.net|assembly|servicing|softwaredistribution)\\']
+
+- id: INV-EVTX-066
+  title: Unsigned DLL loaded by a Windows program from outside Windows
+  severity: medium
+  mitre: [T1574.002, T1218]
+  description: A program from System32/SysWOW64 loaded an unsigned DLL from outside the Windows and Program Files folders (Sysmon 7) - DLL hijacking or a LOLBin loading attacker code.
+  note: 'Check the DLL''s origin and signature and which program was started before it was loaded.'
+  match: {EventID: 7, Channel: Microsoft-Windows-Sysmon/Operational, Signed: "false"}
+  regex:
+    Image: ['^c:\\windows\\(system32|syswow64)\\']
+  not_regex:
+    ImageLoaded: ['^c:\\(windows|program files|program files \(x86\))\\']
+
+- id: INV-EVTX-067
+  title: Unsigned DLL loaded into LSASS
+  severity: critical
+  mitre: [T1547.008, T1556.002]
+  description: lsass.exe loaded an unsigned DLL (Sysmon 7) - a rogue security package, password filter or credential stealer.
+  note: 'Check the DLL path and the Security Packages and Notification Packages values under HKLM\SYSTEM\CurrentControlSet\Control\Lsa.'
+  match: {EventID: 7, Channel: Microsoft-Windows-Sysmon/Operational, Signed: "false"}
+  endswith: {Image: ["\\lsass.exe"]}
+
+- id: INV-EVTX-068
+  title: Windows or Office program name running from a user folder
+  severity: high
+  mitre: [T1036.005]
+  description: A process named like a Windows or Office binary (svchost, lsass, explorer, winword, ...) ran from a user-writable folder - masquerading.
+  note: 'Check the file''s signature and compare its hash with the genuine Windows or Office file.'
+  process_creation: true
+  endswith:
+    Image: ["\\svchost.exe", "\\lsass.exe", "\\csrss.exe", "\\smss.exe", "\\services.exe", "\\winlogon.exe", "\\wininit.exe",
+            "\\explorer.exe", "\\taskhost.exe", "\\taskhostw.exe", "\\spoolsv.exe", "\\dllhost.exe", "\\conhost.exe",
+            "\\rundll32.exe", "\\wermgr.exe", "\\winword.exe", "\\excel.exe", "\\powerpnt.exe", "\\outlook.exe"]
+  regex:
+    Image: ['^c:\\(users|programdata|perflogs|windows\\temp|windows\\tasks|\$recycle\.bin)\\']
+
+- id: INV-EVTX-069
+  title: Shell started by a browser, document reader or service
+  severity: high
+  mitre: [T1203, T1059]
+  description: A browser, PDF reader, the print spooler, the update client or ftp.exe started a shell or script host - exploitation or a LOLBin launching commands.
+  note: Browser native messaging hosts are skipped (their command line carries the extension origin).
+  process_creation: true
+  endswith:
+    ParentImage: ["\\iexplore.exe", "\\chrome.exe", "\\firefox.exe", "\\msedge.exe", "\\opera.exe", "\\brave.exe",
+                  "\\acrord32.exe", "\\acrobat.exe", "\\foxitreader.exe", "\\spoolsv.exe", "\\wuauclt.exe", "\\ftp.exe",
+                  "\\eqnedt32.exe", "\\hh.exe", "\\regsvr32.exe"]
+    Image: ["\\cmd.exe", "\\powershell.exe", "\\pwsh.exe", "\\wscript.exe", "\\cscript.exe", "\\mshta.exe"]
+  not_contains:
+    CommandLine: ["chrome-extension://", "moz-extension://"]
+
+- id: INV-EVTX-070
+  title: Shell started by an auto-elevating Windows program
+  severity: high
+  mitre: [T1548.002]
+  description: An auto-elevating program (sdclt, fodhelper, computerdefaults, eventvwr, changepk, cliconfg, migwiz, sysprep, ...) started a shell or script host - UAC bypass.
+  note: 'Look at the registry or file change made just before (shell command handler, App Paths, planted DLL).'
+  process_creation: true
+  endswith:
+    ParentImage: ["\\sdclt.exe", "\\fodhelper.exe", "\\computerdefaults.exe", "\\eventvwr.exe", "\\slui.exe", "\\wsreset.exe",
+                  "\\changepk.exe", "\\cliconfg.exe", "\\migwiz.exe", "\\sysprep.exe", "\\dccw.exe", "\\recdisc.exe"]
+    Image: ["\\cmd.exe", "\\powershell.exe", "\\pwsh.exe", "\\wscript.exe", "\\cscript.exe", "\\mshta.exe", "\\rundll32.exe",
+            "\\regsvr32.exe"]
+
+- id: INV-EVTX-071
+  title: Cabinet extracted into a system folder with wusa
+  severity: high
+  mitre: [T1548.002, T1574.002]
+  description: wusa.exe /extract wrote into a Windows folder - used by UAC bypasses to plant a DLL next to an auto-elevating program.
+  note: 'Look at the files the cabinet contained and the auto-elevating program started next.'
+  process_creation: true
+  endswith: {Image: ["\\wusa.exe"]}
+  regex:
+    CommandLine: ['/extract:"?c:\\windows\\']
+
+- id: INV-EVTX-072
+  title: Proxy execution through a signed Windows binary
+  severity: medium
+  mitre: [T1218, T1202]
+  description: A signed Windows binary was used to start another program or fetch a file (rundll32 exports such as shdocvw OpenURL, zipfldr RouteTheCall, advpack RegisterOCX, pcwutl LaunchApplication, url.dll; pcalua -a; explorer /root; ftp -s; vshadow -exec; desktopimgdownldr).
+  note: url.dll,FileProtocolHandler with a web address is also used by some applications to open links.
+  process_creation: true
+  regex:
+    CommandLine: ['(shdocvw|ieframe|url)(\.dll)?"?,\s*(openurl|fileprotocolhandler)', 'zipfldr(\.dll)?"?,\s*routethecall',
+                  '(ie)?advpack(\.dll)?"?,\s*(registerocx|launchinfsection)', 'pcwutl(\.dll)?"?,\s*launchapplication',
+                  'setupapi(\.dll)?"?,\s*installhinfsection', 'syssetup(\.dll)?"?,\s*setupinfobjectinstallaction',
+                  'shell32(\.dll)?"?,\s*shellexec_rundll', 'rundll32(\.exe)?"?\s+javascript:', 'mshtml(\.dll)?"?,\s*runhtmlapplication',
+                  'pcalua(\.exe)?"?\s+-a\s', 'vshadow(\.exe)?"?\s.*-exec=', 'desktopimgdownldr.*/lockscreenurl:',
+                  '\bftp(\.exe)?"?\s+(-\w+\s+)*-s:', 'explorer(\.exe)?"?\s+/root,.*\.exe']
+
+- id: INV-EVTX-073
+  title: rundll32 runs a DLL from a user-writable folder
+  severity: medium
+  mitre: [T1218.011]
+  description: rundll32 loaded a DLL or applet from a user-writable folder (Public, AppData, Temp, ProgramData, Downloads).
+  note: Some printer drivers and installers do this; check the DLL's signature.
+  process_creation: true
+  endswith: {Image: ["\\rundll32.exe"]}
+  regex:
+    CommandLine: ['\\(users\\public|appdata\\roaming|appdata\\local\\temp|temp|downloads|programdata|progra~3|perflogs)\\']
+
+- id: INV-EVTX-074
+  title: Program or script hidden with attrib
+  severity: medium
+  mitre: [T1564.001]
+  description: attrib set the hidden or system attribute on an executable or script.
+  note: 'Unhide the file with attrib -h -s and look at what it is.'
+  process_creation: true
+  endswith: {Image: ["\\attrib.exe"]}
+  regex:
+    CommandLine: ['\+[hs]\b.*\.(exe|dll|ps1|bat|cmd|vbs|js|hta|scr|sys)\b']
+
+- id: INV-EVTX-075
+  title: Command run over WinRM
+  severity: medium
+  mitre: [T1021.006]
+  description: winrshost.exe or wsmprovhost.exe started a process - a command or PowerShell remoting session from another host.
+  note: Administrators use PowerShell remoting; confirm the account and the source host (WinRM log 91/169).
+  process_creation: true
+  endswith:
+    ParentImage: ["\\winrshost.exe", "\\wsmprovhost.exe"]
+
+- id: INV-EVTX-076
+  title: mshta or MMC started through DCOM
+  severity: high
+  mitre: [T1021.003]
+  description: mshta.exe or mmc.exe was started with -Embedding, i.e. activated through DCOM - remote execution with LethalHTA or MMC20.Application.
+  note: 'Find the source host from the network logon (4624 type 3) at the same time.'
+  process_creation: true
+  endswith: {Image: ["\\mshta.exe", "\\mmc.exe"]}
+  contains: {CommandLine: ["-embedding"]}
+
+- id: INV-EVTX-077
+  title: PsExec-style service process started
+  severity: high
+  mitre: [T1569.002, T1021.002]
+  description: The service side of PsExec or a clone (PSEXESVC, PAExec, RemCom, CSExec) started.
+  note: 'Find the source host from the network logon (4624 type 3) and the ADMIN$ access (5145) at the same time.'
+  process_creation: true
+  contains: {Image: ["psexesvc", "paexec", "remcomsvc", "csexecsvc"]}
+
+- id: INV-EVTX-078
+  title: Program written over SMB
+  severity: medium
+  mitre: [T1570, T1021.002]
+  description: The System process (the SMB server) created an executable or script on this host (Sysmon 11) - a file copied in from another host, as PsExec and lateral movement tools do.
+  note: Software deployment over shares also does this; check the source host in the matching 5140/5145 events.
+  match: {EventID: 11, Channel: Microsoft-Windows-Sysmon/Operational, Image: System}
+  regex:
+    TargetFilename: ['\.(exe|dll|sys|ps1|bat|cmd|vbs|js|hta|scr)$']
+
+- id: INV-EVTX-079
+  title: Program or script placed in a Startup folder
+  severity: high
+  mitre: [T1547.001]
+  description: An executable or script was created in, or had its time changed in, a Startup folder (Sysmon 11/2) - it runs at every logon.
+  note: 'Look at the file and who created it; remove it if it is not wanted.'
+  match: {EventID: [2, 11], Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetFilename: ['\\start menu\\programs\\startup\\[^\\]+\.(exe|dll|ps1|bat|cmd|vbs|vbe|js|jse|hta|scr|wsf|url)$']
+
+- id: INV-EVTX-080
+  title: Creation time of a program changed
+  severity: medium
+  mitre: [T1070.006]
+  description: A program outside the Windows and Program Files folders changed the creation time of an executable or script (Sysmon 2) - timestomping to hide a dropped file.
+  note: 'Compare the file''s $MFT $STANDARD_INFORMATION and $FILE_NAME times to confirm.'
+  match: {EventID: 2, Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    TargetFilename: ['\.(exe|dll|sys|ps1|bat|cmd|vbs|js|hta|scr)$']
+  not_regex:
+    Image: ['^c:\\(windows|program files|program files \(x86\))\\']
+
+- id: INV-EVTX-081
+  title: Network connection by a proxy-execution binary
+  severity: high
+  mitre: [T1218, T1105]
+  description: regsvr32, mshta, certutil, msbuild, installutil, regasm, regsvcs, cmstp, msxsl, odbcconf, wmic, notepad or calc made a network connection (Sysmon 3) - remote script or payload retrieval.
+  note: 'Look up the destination address and the command line of the process.'
+  match: {EventID: 3, Channel: Microsoft-Windows-Sysmon/Operational}
+  endswith:
+    Image: ["\\regsvr32.exe", "\\mshta.exe", "\\certutil.exe", "\\msbuild.exe", "\\installutil.exe", "\\regasm.exe",
+            "\\regsvcs.exe", "\\cmstp.exe", "\\msxsl.exe", "\\odbcconf.exe", "\\wmic.exe", "\\notepad.exe", "\\calc.exe"]
+
+- id: INV-EVTX-082
+  title: PowerShell queried a domain controller over LDAP
+  severity: low
+  mitre: [T1087.002]
+  description: powershell.exe connected to LDAP or the global catalog (Sysmon 3, port 389/636/3268/3269) - domain enumeration with PowerView or ADSI.
+  note: Admin scripts using ADSI do this too; the ActiveDirectory module uses ADWS (9389) instead.
+  match:
+    EventID: 3
+    Channel: Microsoft-Windows-Sysmon/Operational
+    DestinationPort: [389, 636, 3268, 3269]
+    Initiated: ["true", "1"]
+  endswith: {Image: ["\\powershell.exe", "\\pwsh.exe"]}
+
+- id: INV-EVTX-083
+  title: SMB connections to many hosts
+  severity: medium
+  mitre: [T1135, T1018]
+  description: This host opened SMB connections (Sysmon 3, port 445) to 5 or more different hosts within 2 minutes - share or session enumeration (Invoke-UserHunter, net view sweeps) or worm-like spread.
+  note: 'Vulnerability scanners and inventory tools also do this; check which account and process are behind it.'
+  match:
+    EventID: 3
+    Channel: Microsoft-Windows-Sysmon/Operational
+    DestinationPort: 445
+    Initiated: ["true", "1"]
+  correlate: {type: distinct, field: DestinationIp, count: 5, window_seconds: 120, group_by: Computer}
+
+- id: INV-EVTX-084
+  title: Many remote named pipe connections
+  severity: medium
+  mitre: [T1135, T1018]
+  description: Remote clients connected to 4 or more different system named pipes (srvsvc, samr, lsarpc, wkssvc, ...) within a minute (Sysmon 18 by System) - remote enumeration over RPC.
+  note: 'Find the client host from the network logons (4624 type 3) at the same time.'
+  match: {EventID: 18, Channel: Microsoft-Windows-Sysmon/Operational, Image: System}
+  correlate: {type: distinct, field: PipeName, count: 4, window_seconds: 60, group_by: Computer}
+
+- id: INV-EVTX-085
+  title: PsExec-style named pipe
+  severity: high
+  mitre: [T1569.002, T1021.002]
+  description: A named pipe used by PsExec and its clones was created or opened (Sysmon 17/18) - the -stdin/-stdout/-stderr pipes stay even when the service is renamed.
+  note: 'Find the source host from the network logon and the service install (7045) at the same time.'
+  match: {EventID: [17, 18], Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    PipeName: ['-(stdin|stdout|stderr)$', 'psexesvc', 'paexec', 'remcom', 'csexec']
+
+- id: INV-EVTX-086
+  title: Named pipe typical of a C2 framework
+  severity: high
+  mitre: [T1071]
+  description: A named pipe with a default Cobalt Strike or similar implant name was created or opened (Sysmon 17/18).
+  note: 'Look at the process that created the pipe and at its network connections.'
+  match: {EventID: [17, 18], Channel: Microsoft-Windows-Sysmon/Operational}
+  regex:
+    PipeName: ['^\\(msagent_[0-9a-f]{2,4}|postex_[0-9a-f]{4}|postex_ssh_[0-9a-f]{4}|status_[0-9a-f]{2}|mojo\.5688\.8052\.(183894939787088877|35780273329370473)[0-9a-f]{2}|(wkssvc|ntsvcs|scerpc|lsarpc|samr|netlogon|srvsvc)_[0-9a-f]{2}|dserrorpipe|win_svc|msse-[0-9]+-server|interprocess_[0-9a-f]{2})$']
+
+- id: INV-EVTX-087
+  title: WMI event consumer registered
+  severity: high
+  mitre: [T1546.003]
+  description: A permanent WMI event consumer was created or changed (Sysmon 20) - persistence that runs a command or script when the filter fires.
+  note: 'List subscriptions with Get-WmiObject -Namespace root\subscription -Class __EventConsumer and look at the command or script.'
+  match: {EventID: 20, Channel: Microsoft-Windows-Sysmon/Operational, Operation: [Created, Modified]}
+
+- id: INV-EVTX-088
+  title: Application shim that injects code
+  severity: high
+  mitre: [T1546.011]
+  description: A compatibility fix that loads or redirects code (InjectDll, RedirectEXE, LoadLibraryRedirect, ShimViaEAT) was applied (Program-Telemetry 500) - shim persistence.
+  note: 'Find the shim database with sdbinst -l or under C:\Windows\AppPatch\Custom and check what it loads.'
+  match: {EventID: 500, Channel: Microsoft-Windows-Application-Experience/Program-Telemetry, FixName: [InjectDll, RedirectEXE, LoadLibraryRedirect, ShimViaEAT]}
+
+- id: INV-EVTX-089
+  title: Application shim applied to an accessibility program
+  severity: high
+  mitre: [T1546.011, T1546.008]
+  description: A compatibility fix was applied to an accessibility program available on the logon screen (Program-Telemetry 500) - a shim can turn it into a SYSTEM backdoor.
+  note: 'Find the custom shim database under C:\Windows\AppPatch\Custom and check what it changes.'
+  match: {EventID: 500, Channel: Microsoft-Windows-Application-Experience/Program-Telemetry}
+  regex:
+    ExePath: ['\\windows\\system32\\(osk|sethc|utilman|magnify|narrator|displayswitch|atbroker)\.exe$']
+
+- id: INV-EVTX-090
+  title: Control Panel item run from a user folder
+  severity: medium
+  mitre: [T1218.002]
+  description: A .cpl file from a user-writable folder was run (Program Compatibility Assistant 17) - malicious Control Panel items arrive by mail or download.
+  note: 'Get the .cpl file and check where it came from (mail attachment, download).'
+  match: {EventID: 17, Channel: Microsoft-Windows-Application-Experience/Program-Compatibility-Assistant}
+  regex:
+    ExePath: ['\\(users|programdata|temp)\\.*\.cpl$']
+
+- id: INV-EVTX-091
+  title: Local accounts or groups enumerated by a command-line tool
+  severity: low
+  mitre: [T1087.001, T1069.001]
+  description: A local user's or group's membership was read (4798/4799) by net, PowerShell or WMIC - account discovery.
+  note: Admin scripts do this too; look at the account and what ran before and after.
+  match: {EventID: [4798, 4799], Channel: Security}
+  endswith:
+    CallerProcessName: ["\\net.exe", "\\net1.exe", "\\powershell.exe", "\\pwsh.exe", "\\wmic.exe"]
+
+- id: INV-EVTX-092
+  title: DPAPI backup key pipe used over the network
+  severity: low
+  mitre: [T1555]
+  description: A user account opened the protected_storage pipe on IPC$ (5145) - the BackupKey RPC that Mimikatz lsadump::backupkeys and DPAPI master key decryption use.
+  note: Clients also use it when a user's master key is created; many hits from one account in a short time are the signal.
+  match: {EventID: 5145, Channel: Security, RelativeTargetName: protected_storage}
+  not_endswith: {SubjectUserName: ["$"]}
+
+- id: INV-EVTX-093
+  title: Script host or Office started a program from a user folder
+  severity: medium
+  mitre: [T1204.002, T1059]
+  description: PowerShell, a script host or an Office application started an executable from Temp, Public, AppData, Downloads or ProgramData - a dropper running its payload.
+  note: 'Get the started program and check where it came from.'
+  process_creation: true
+  endswith:
+    ParentImage: ["\\powershell.exe", "\\pwsh.exe", "\\wscript.exe", "\\cscript.exe", "\\mshta.exe", "\\winword.exe",
+                  "\\excel.exe", "\\powerpnt.exe", "\\outlook.exe"]
+  regex:
+    Image: ['\\(users\\public|appdata\\roaming|appdata\\local\\temp|temp|downloads|programdata)\\.*\.exe$']
+
+- id: INV-EVTX-094
+  title: Scheduled task created from a user folder or as SYSTEM
+  severity: medium
+  mitre: [T1053.005]
+  description: schtasks /create read the task XML from a user-writable folder or registered the task to run as SYSTEM.
+  note: Installers create SYSTEM tasks too; check the task action.
+  process_creation: true
+  endswith: {Image: ["\\schtasks.exe"]}
+  contains: {CommandLine: ["/create"]}
+  regex:
+    CommandLine: ['/xml\s+"?[^"]*\\(appdata|temp|users\\public|programdata)\\', '/ru\s+"?(nt authority\\)?system\b']
