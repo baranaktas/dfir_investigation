@@ -447,9 +447,10 @@ or all of them. The script downloads nothing.
 Holdout part of EVTX-ATTACK-SAMPLES, measured on 2026-11-27 with the built-in rules and the bundled Sigma rules
 (r2026-07-01):
 
-| Files | Finding with the tactic | Rate | Any finding | Rate |
-|---:|---:|---:|---:|---:|
-| 86 | 28 | 33% | 51 | 59% |
+| Rules | Files | Finding with the tactic | Rate | Any finding | Rate |
+|---|---:|---:|---:|---:|---:|
+| Before the event log behaviour rules | 86 | 20 | 23% | 47 | 55% |
+| Current | 86 | 28 | 33% | 51 | 59% |
 
 Rules were written using the other 70% of the samples; the 30% shown here were not looked at. The set contains
 attacks only, so it does not measure false positives.
