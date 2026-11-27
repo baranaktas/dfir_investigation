@@ -22,6 +22,7 @@ class AnalysisResult:
     stories: list[Any] = field(default_factory=list)
     notes: dict[str, str] = field(default_factory=dict)
     collector: Collector | None = None
+    artefact_findings: list[Finding] = field(default_factory=list)
     suppressed: list[Any] = field(default_factory=list)
 
     def sorted_findings(self) -> list[Finding]:

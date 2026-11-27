@@ -12,7 +12,8 @@ from investigation import __version__
 from investigation.core.models import Finding
 from investigation.core.module import ModuleType
 from investigation.core.package import ManifestError
-from investigation.core.artefacts import load_collector, mark
+from investigation.core.allowlist import allowlist_files, apply_allowlist, load_allowlist
+from investigation.core.artefacts import load_collector, mark, split_findings
 from investigation.core.console import Throttle, say as _say
 from investigation.core.frozen import is_frozen
 from investigation.core.preflight import pip_installer, run_preflight
@@ -168,7 +169,11 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
         errors(modules_run[0], f"system info failed: {type(exc).__name__}: {exc}")
         system_info = {}
 
-    collector = load_collector(input_path)
+    def collector_note(message: str) -> None:
+        log.warning(message)
+        _say(f"note: {message}")
+
+    collector = load_collector(input_path, collector_note)
     store = EventStore(out_dir / DB_NAME)
     findings: list[Finding] = []
     try:
@@ -221,6 +226,10 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
             errors(source_name, msg)
         source.close()
 
+    entries = load_allowlist(allowlist_files(options.get("allowlist_files") or []), errors)
+    findings, suppressed = apply_allowlist(findings, entries)
+    findings, artefact_findings = split_findings(findings)
+
     result = AnalysisResult(
         case={
             "input": str(input_path.resolve()),
@@ -238,6 +247,8 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
         module_errors=module_errors,
         modules_run=modules_run,
         collector=collector,
+        suppressed=suppressed,
+        artefact_findings=artefact_findings,
     )
 
     if "sigma" in modules_run:

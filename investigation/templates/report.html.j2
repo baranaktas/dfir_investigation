@@ -80,34 +80,34 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
     <span id="count" class="muted"></span>
   </div>
 
-  <h2>Findings ({{ findings|length }})</h2>
-  {% for slug, name, fs in tactic_groups %}
+  <h2>Findings ({{ card_total }})</h2>
+  {% for slug, name, fs, cards in tactic_groups %}
   <details class="tactic" data-tactic="{{ slug }}" open>
-    <summary>{{ name }} ({{ fs|length }})
+    <summary>{{ name }} ({{ cards|length }})
       {% for sev, n in sev_badges(fs) %}<span class="sev small sev-{{ sev }}">{{ n }} {{ sev }}</span>{% endfor %}</summary>
     <div class="body">
-    {% for f in fs %}
+    {% for c in cards %}{% set f = c.head %}
     <details class="finding"{% if f.severity >= 3 %} open{% endif %}>
       <summary>
         <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
-        <strong>{{ f.title }}</strong>
+        <strong>{{ f.title }}</strong>{% if c.key %} <span class="mono">{{ c.key[:120] }}</span>{% endif %}
         <span class="mono muted">{{ f.rule_id }}</span>
         <span class="mono">{{ f.mitre|join(", ") }}</span>
-        {% for src in sources_of(f) %}<span class="src">{{ src }}</span>{% endfor %}
+        {% for src in c.sources %}<span class="src">{{ src }}</span>{% endfor %}
         {% for t in tactic_names_of(f)[1:] %}<span class="tac">{{ t }}</span>{% endfor %}
-        <span class="muted">{{ f.events|length }} event(s)</span>
+        <span class="muted">{{ c.count }} event(s){% if c.first %}, first {{ c.first.isoformat() }}, last {{ c.last.isoformat() }}{% endif %}</span>
       </summary>
       <div>
         <p>{{ f.description }}</p>
         {% if f.note %}<div class="note">{{ f.note }}</div>{% endif %}
         <table>
           <tr><th>Time (UTC)</th><th>Host</th><th>User</th><th>Event</th><th>Source</th></tr>
-          {% for e in f.events[:finding_event_limit] %}
+          {% for e in c.events[:finding_event_limit] %}
           <tr><td class="mono">{% if "no_timestamp" in e.tags %}—{% else %}{{ e.timestamp.isoformat() }}{% endif %}</td><td>{{ e.host or "" }}</td><td>{{ e.user or "" }}</td>
-              <td class="msg mono">{{ e.message }}</td><td class="mono">{{ e.source_file }}</td></tr>
+              <td class="msg mono">{{ e.message }}{% if possible_tag in e.tags %} <span class="note">{{ possible_note }}</span>{% endif %}</td><td class="mono">{{ e.source_file }}</td></tr>
           {% endfor %}
         </table>
-        {% if f.events|length > finding_event_limit %}<p class="muted">Showing {{ finding_event_limit }} of {{ f.events|length }} events - all are in findings.json.</p>{% endif %}
+        {% if c.events|length > finding_event_limit %}<p class="muted">Showing {{ finding_event_limit }} of {{ c.events|length }} events - all are in findings.json.</p>{% endif %}
       </div>
     </details>
     {% endfor %}
@@ -120,7 +120,11 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
   <details class="section" id="artefacts">
     <summary>Collection artefacts ({{ artefacts.total }})</summary>
     <div class="body">
-      <p class="muted">Events created by the collection itself (the collector executable, the WinPmem service and its temporary driver file, shadow copy and volume access) inside the collection window. They never raise findings; all of them are in events.jsonl and timeline.csv.</p>
+      <p class="muted">Events created by the collection itself (the WinPmem service installed from Temp\\pme*.tmp, and events of the collector executable whose sha256 matches the manifest) inside the collection window. Events that only match by name stay normal events and carry a note. They never raise findings; all of them are in events.jsonl and timeline.csv.</p>
+      {% if artefact_findings %}
+      <p>Findings made only of these events were moved here ({{ artefact_findings|length }}):</p>
+      <ul>{% for rid, title, sev, n in artefact_findings %}<li><span class="mono">{{ rid }}</span> {{ title }} ({{ sev }}, {{ n }} event(s))</li>{% endfor %}</ul>
+      {% endif %}
       {% if artefacts.rows %}
       <table>
         <tr><th>Time (UTC)</th><th>Artifact</th><th>Event</th><th>Source</th></tr>
@@ -133,14 +137,29 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
     </div>
   </details>
 
+  <details class="section" id="suppressed">
+    <summary>Suppressed by allowlist ({{ suppressed_total }})</summary>
+    <div class="body">
+      {% if suppressed %}
+      <table>
+        <tr><th>Rule</th><th>Field</th><th>Match</th><th>Events</th><th>Reason</th></tr>
+        {% for x in suppressed %}
+        <tr><td><span class="mono">{{ x.rule_id }}</span> {{ x.title }}</td><td class="mono">{{ x.field }}</td><td class="mono">{{ x.pattern }}</td><td>{{ x.count }}</td><td>{{ x.reason }}</td></tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="muted">None.</p>{% endif %}
+    </div>
+  </details>
+
   <details class="section" id="commands" data-page="{{ group_page }}">
-    <summary>Commands ({{ command_total }})</summary>
+    <summary>Commands ({{ command_total }}{% if command_distinct != command_total %}, {{ command_distinct }} distinct{% endif %})</summary>
     <div class="body">
       <noscript><p class="note">Commands need JavaScript; see commands.csv</p></noscript>
-      {% if command_shown < command_total %}<p class="note">Showing {{ command_shown }} of {{ command_total }} commands &mdash; all of them are in commands.csv</p>{% endif %}
+      {% if command_shown < command_distinct %}<p class="note">Showing {{ command_shown }} of {{ command_distinct }} distinct commands &mdash; all of them are in commands.csv</p>{% endif %}
+      <p class="muted">Identical commands are one row with a count; commands.csv has every occurrence.</p>
       <p class="muted">PowerShell history has no per-command time. cmd.exe history appears only when a memory image was analysed.</p>
       <div class="scroll"><table>
-        <thead><tr><th>Time (UTC)</th><th>Source</th><th>User</th><th>Host</th><th>Process</th><th>Command</th><th>File</th></tr></thead>
+        <thead><tr><th>First (UTC)</th><th>Sources</th><th>User</th><th>Host</th><th>Process</th><th>Command</th><th>Files</th></tr></thead>
         <tbody></tbody>
       </table></div>
       <div class="controls"><button type="button" class="more" hidden>Show {{ group_page }} more</button><span class="gcount muted"></span></div>
@@ -152,6 +171,17 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
     <div class="body">
       <noscript><p class="note">Timeline needs JavaScript; see timeline.csv</p></noscript>
       {% if shown_events < total_events %}<p class="note">Showing {{ shown_events }} of {{ total_events }} events &mdash; full timeline in timeline.csv</p>{% endif %}
+      <h3>Summary per artifact and day</h3>
+      <table class="day-summary">
+        <tr><th>Artifact</th><th>Events</th><th>Per day (UTC)</th></tr>
+        {% for a in day_summary %}
+        <tr><td class="mono">{{ a.artifact }}</td><td>{{ a.total }}</td>
+            <td>{% if a.days|length > 3 %}<details><summary>{{ a.days|length }} days, {{ a.days[0][0] }} to {{ a.days[-1][0] }}</summary>
+              {% for day, n in a.days %}<div class="mono">{{ day }}: {{ n }}</div>{% endfor %}</details>
+              {% else %}{% for day, n in a.days %}<span class="mono">{{ day }}: {{ n }}</span>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</td></tr>
+        {% endfor %}
+      </table>
+      <details class="section" id="timeline-rows"><summary>Event rows</summary><div class="body">
       {% for gid, label, n, tot in tl_groups %}
       <details class="tl-group" data-group="{{ gid }}">
         <summary>{{ label }} <span class="muted">(showing {{ n }}{% if tot is not none %} of {{ tot }}{% endif %})</span></summary>
@@ -164,6 +194,7 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
         </div>
       </details>
       {% else %}<p class="muted">No events.</p>{% endfor %}
+      </div></details>
     </div>
   </details>
 
@@ -336,6 +367,13 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
       });
       cmd.appendChild(document.createTextNode(" "));
       cmd.appendChild(btn);
+    }
+    if (r[9] > 1) {
+      var times = document.createElement("span");
+      times.className = "src";
+      times.textContent = "x" + r[9] + (r[10] && r[10] !== r[0] ? ", last " + r[10] : "");
+      cmd.appendChild(document.createTextNode(" "));
+      cmd.appendChild(times);
     }
     if (r[8]) {
       var badge = document.createElement("span");

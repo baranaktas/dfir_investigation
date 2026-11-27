@@ -20,7 +20,7 @@ class JsonlOutput(OutputModule):
         out_dir = Path(out_dir)
         events = out_dir / "events.jsonl"
         with events.open("w", encoding="utf-8") as fh:
-            for e in result.store.iter_events(include_artefacts=True):
+            for e in result.store.iter_events():
                 fh.write(json.dumps(e.to_dict(), ensure_ascii=False) + "\n")
         findings = out_dir / "findings.json"
         findings.write_text(
@@ -28,6 +28,8 @@ class JsonlOutput(OutputModule):
                 {
                     "case": result.case,
                     "findings": [f.to_dict() for f in result.sorted_findings()],
+                    "suppressed_by_allowlist": [x.to_dict() for x in result.suppressed],
+                    "collection_artefact_findings": [f.to_dict() for f in result.artefact_findings],
                     "collection_artefacts": sum(1 for _ in result.store.iter_artefacts()),
                     "preflight": result.preflight.to_dict(),
                     "module_errors": [{"module": m, "message": msg} for m, msg in result.module_errors],

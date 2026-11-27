@@ -55,6 +55,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     options = {}
     if args.ioc:
         options["ioc_files"] = args.ioc
+    if args.allowlist:
+        options["allowlist_files"] = args.allowlist
     if args.memory:
         options["memory"] = args.memory
     result = analyze(inp, out, profile=args.profile, case_id=args.case or "", examiner=args.examiner or "",
@@ -336,6 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--no-install", action="store_true", help="never auto-install missing python packages")
     a.add_argument("--force", action="store_true", help="overwrite a non-empty output directory")
     a.add_argument("--ioc", action="append", metavar="FILE", help="IOC list (hashes/IPs/domains/URLs/files); repeatable")
+    a.add_argument("--allowlist", action="append", metavar="FILE",
+                   help="allowlist of known-benign events (YAML); repeatable, added to ~/.investigation/allowlist.yaml")
     a.add_argument("--memory", metavar="IMAGE", help="memory image to analyze with Volatility 3 alongside the input")
     a.set_defaults(func=cmd_analyze)
 

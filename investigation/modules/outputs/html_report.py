@@ -9,8 +9,10 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from investigation.core.artefacts import POSSIBLE_NOTE, POSSIBLE_TAG
 from investigation.core.attack import TACTICS, primary_tactic, source_label, tactics_for
 from investigation.core.commands import collect_commands
+from investigation.core.grouping import group_cards, group_commands, timeline_summary
 from investigation.core.models import Event, EvidenceType, Finding, Severity
 from investigation.core.module import ModuleMeta, ModuleType, OutputModule
 from investigation.core.registry import register
@@ -25,23 +27,32 @@ AROUND = timedelta(minutes=10)
 AROUND_CAP = 50_000
 FINDING_EVENT_LIMIT = 50
 COMMANDS_LIMIT = 50_000
-COMMAND_COLUMNS = ["Time (UTC)", "Source", "User", "Host", "Process", "Command", "More", "File", "Suspicious"]
+COMMAND_COLUMNS = ["First (UTC)", "Sources", "User", "Host", "Process", "Command", "More", "Files", "Suspicious", "Count",
+                   "Last (UTC)"]
 
 
 def commands_payload(store: EventStore, limit: int = COMMANDS_LIMIT) -> dict:
-    """Commands as report rows: the first 300 characters of the command, the rest separately (expandable).
-    Past `limit` rows only suspicious ones are added."""
+    """Identical commands collapsed into one row (first time, count, last time, distinct sources); the first 300
+    characters of the command, the rest separately (expandable). Past `limit` rows only suspicious ones are added."""
     rows = collect_commands(store)
-    room = max(0, limit - sum(1 for r in rows if r.rules))
+    groups = group_commands(rows)
+    room = max(0, limit - sum(1 for g in groups if any(r.rules for r in g.rows)))
     out = []
-    for r in rows:
-        if not r.rules:
+    for g in groups:
+        first = g.rows[0]
+        rules = sorted({rule for r in g.rows for rule in r.rules})
+        if not rules:
             if room <= 0:
                 continue
             room -= 1
-        out.append([r.time.isoformat() if r.time else "\u2014", r.source, r.user, r.host, r.process, r.head, r.rest,
-                    r.source_file, " ".join(r.rules)])
-    return {"columns": COMMAND_COLUMNS, "rows": out, "total": len(rows)}
+        timed = [r.time for r in g.rows if r.time]
+        out.append([
+            min(timed).isoformat() if timed else "\u2014", ", ".join(sorted({r.source for r in g.rows})),
+            ", ".join(sorted({r.user for r in g.rows if r.user})), ", ".join(sorted({r.host for r in g.rows if r.host})),
+            first.process, first.head, first.rest, ", ".join(sorted({r.source_file for r in g.rows})[:3]),
+            " ".join(rules), g.count, max(timed).isoformat() if timed else "\u2014",
+        ])
+    return {"columns": COMMAND_COLUMNS, "rows": out, "total": len(rows), "distinct": len(groups)}
 
 
 ARTEFACT_ROWS = 500
@@ -187,13 +198,16 @@ class HtmlReport(OutputModule):
         env.globals["tactic_names_of"] = lambda f: [TACTIC_NAMES[t] if t in TACTIC_NAMES else t for t in tactics_for(f)]
         env.globals["sev_badges"] = lambda fs: [(str(s), n) for s in sorted(Severity, reverse=True)
                                                 if (n := sum(1 for f in fs if f.severity == s))]
+        tactic_cards = [(slug, name, fs, group_cards(fs)) for slug, name, fs in group_findings(findings)]
         payload = timeline_payload(store, findings, TIMELINE_LIMIT)
         commands = commands_payload(store)
         payload["commands"] = commands
         html = env.get_template("report.html.j2").render(
             case=result.case,
             findings=findings,
-            tactic_groups=group_findings(findings),
+            tactic_groups=tactic_cards,
+            card_total=sum(len(c) for *_, c in tactic_cards),
+            day_summary=timeline_summary(store.day_counts()),
             finding_event_limit=FINDING_EVENT_LIMIT,
             severities=[str(s) for s in sorted(Severity, reverse=True)],
             severity_counts=sev_counts,
@@ -206,8 +220,14 @@ class HtmlReport(OutputModule):
             tl_groups=[(g["id"], g["label"], len(g["rows"]), g.get("total")) for g in payload["groups"]],
             timeline_json=safe_json(payload),
             command_total=commands["total"],
+            command_distinct=commands["distinct"],
             command_shown=len(commands["rows"]),
             artefacts=artefacts_payload(store),
+            artefact_findings=[(f.rule_id, f.title, str(f.severity), len(f.events)) for f in result.artefact_findings],
+            possible_tag=POSSIBLE_TAG,
+            possible_note=POSSIBLE_NOTE,
+            suppressed=result.suppressed,
+            suppressed_total=sum(x.count for x in result.suppressed),
             manifest=_manifest_summary(result.case),
             preflight=result.preflight,
             module_errors=result.module_errors,

@@ -308,15 +308,24 @@ always uses `full`.
 
 - **Summary bar**: number of events, number of findings per severity, number of events per source.
 - **Findings**, grouped by ATT&CK tactic in kill-chain order (findings without a technique go under
-  "Other"). Each finding shows its severity, rule ID, ATT&CK techniques, description, an analyst note and up
-  to 50 of its events; all events are in `findings.json`.
-- **Commands**: every command run, from PowerShell history, Security 4688, Sysmon 1, PowerShell 4103 and
+  "Other"). One card per rule and key (threat name, service name, command, image path or user): it shows
+  the severity, rule ID, ATT&CK techniques, the number of events, first and last time, the distinct
+  sources, a description, an analyst note and up to 50 of its events; all events are in `findings.json`.
+- **Collection artefacts**: events the collection itself caused (the WinPmem service installed from
+  `Temp\pme<hex>.tmp` and events of the collector executable whose sha256 matches `manifest.json`, inside the
+  collection window plus or minus two minutes). Detections still see them; a finding made only of such
+  events is moved here and listed. Events that match the collector's name without a hash stay normal and
+  carry a note, and shadow copy events are never hidden.
+- **Suppressed by allowlist**: events left out of findings by your allowlist, with the reason (see below).
+- **Commands**: every command run (identical commands are one row with a count, first and last time and
+  sources; `commands.csv` has every occurrence), from PowerShell history, Security 4688, Sysmon 1, PowerShell 4103 and
   4104, live processes, memory command lines and console history, and RunMRU. Rows are sorted by time (rows
   without a time, such as PowerShell history, come last grouped by file), can be filtered with the filter
   box, and commands matching a suspicious pattern carry a "suspicious" badge. Long script blocks show the
   first 300 characters with the rest expandable; `commands.csv` has the full text. cmd.exe history exists
   only in memory images (Volatility `cmdscan` and `consoles`); Windows does not log it otherwise.
-- **Timeline**: the events around the findings first, then the rest. Up to 200,000 events are embedded in
+- **Timeline**: a summary of events per artifact and day, then the event rows: the events around the
+  findings first, then the rest. Up to 200,000 events are embedded in
   the page; the complete timeline is in `timeline.csv` and `investigation.db`.
 - **File stories**: for each executable named in a finding, the events that mention it, grouped into where
   it came from, when it ran, who ran it, whether it persisted and what it touched, plus its hashes when known.
@@ -347,6 +356,26 @@ from the evidence is inserted as plain text, never as HTML.
 | YARA | Matches of the YARA scan (see below) |
 
 ## Detection
+
+### Allowlist
+
+Known-benign events can be kept out of findings with `~/.investigation/allowlist.yaml` or
+`--allowlist FILE` (repeatable). Each entry names a rule ID (`*` or a pattern such as `INV-EVTX-0*` for
+all), an event field, an exact value (case-insensitive) or a `regex`, and a reason:
+
+```yaml
+- rule: INV-EVTX-010
+  field: ServiceName
+  value: BackupAgent
+  reason: Company backup agent, installed 2026-03 by IT
+- rule: "*"
+  field: Image
+  regex: '^C:\\Program Files\\Corp\\'
+  reason: Signed in-house tools
+```
+
+Matching events are removed from the findings (a finding left with no events disappears) and the report
+lists them under "Suppressed by allowlist" with the reason; `findings.json` has the same list.
 
 | Engine | What it does | Rules |
 |---|---|---|
@@ -380,7 +409,7 @@ not cover. Treat findings as leads to verify, not as conclusions.
 
 ```
 investigation analyze  <input> [-o OUT] [--profile NAME] [--case ID] [--examiner NAME]
-                       [--ioc FILE ...] [--memory IMAGE] [--no-install] [--force]
+                       [--ioc FILE ...] [--allowlist FILE ...] [--memory IMAGE] [--no-install] [--force]
 investigation collect  [--all | --only NAMES] [--drives C,D] [--disk-image] [--image-drives T]
                        [-o OUT] [--case ID] [--examiner NAME] [--yes] [--zip]
 investigation verify   <package or .zip>
