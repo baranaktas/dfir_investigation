@@ -208,7 +208,7 @@ class PythonVersion(Requirement):
 
 
 class SigmaRules(Requirement):
-    """Optional: Sigma rules installed under INVESTIGATION_HOME/rules/sigma."""
+    """Optional: the bundled SigmaHQ set, or Sigma rules under INVESTIGATION_HOME/rules/sigma."""
 
     mandatory = False
 
@@ -216,9 +216,10 @@ class SigmaRules(Requirement):
         return "Sigma rules (SigmaHQ)"
 
     def check(self, ctx: Context) -> CheckResult:
-        from investigation.core.rules_update import sigma_root, sigma_rules_present
+        from investigation.core.rules_update import sigma_root, sigma_sources
 
-        if sigma_rules_present():
-            n = sum(1 for p in sigma_root().rglob("*") if p.suffix in (".yml", ".yaml"))
-            return self._result(Status.OK, f"{n} rule files in {sigma_root()}")
-        return self._fail(f"no Sigma rules in {sigma_root()}", "investigation rules update")
+        src = sigma_sources()
+        if src.kind == "none":
+            return self._fail(f"no Sigma rules in {sigma_root()}", "investigation rules update")
+        n = sum(1 for root in src.paths if root.is_dir() for p in root.rglob("*") if p.suffix in (".yml", ".yaml"))
+        return self._result(Status.OK, f"{n} rule files, {src.label}")

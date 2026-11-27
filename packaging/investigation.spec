@@ -18,6 +18,7 @@ datas += tree("profiles/*.yaml", "profiles")
 datas += tree("templates/*", "templates")
 datas += tree("artifacts/*.yaml", "artifacts")
 datas += tree("resources/winpmem/*.exe", "resources/winpmem")
+datas += [(str(p), f"investigation/{p.parent.relative_to(PKG).as_posix()}") for p in sorted((PKG / "resources" / "sigma").rglob("*")) if p.is_file()]
 datas += collect_data_files("dissect.target")
 datas += collect_data_files("dissect.target", include_py_files=True, subdir="plugins")
 datas += collect_data_files("volatility3", include_py_files=True)

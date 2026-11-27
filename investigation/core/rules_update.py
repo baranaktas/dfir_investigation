@@ -8,12 +8,16 @@ import urllib.request
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from investigation import __version__
+from investigation.core.frozen import resource
 from investigation.core.registry import investigation_home
 
 SIGMA_URL = "https://github.com/SigmaHQ/sigma/releases/latest/download/sigma_core.zip"
+SIGMA_BUNDLED_TAG = "r2026-07-01"
+SIGMA_BUNDLED_URL = f"https://github.com/SigmaHQ/sigma/releases/download/{SIGMA_BUNDLED_TAG}/sigma_core.zip"
+SIGMA_BUNDLED_SHA256 = "45ccbd62cbf0d7ccca6f44eaa010f86bb24f082b5411c5e22c71907e7770ee46"
 MAX_DOWNLOAD = 200 * 1024 * 1024
 MAX_MEMBER = 1024 * 1024
 MAX_TOTAL = 100 * 1024 * 1024
@@ -31,6 +35,51 @@ def sigmahq_dir() -> Path:
 def sigma_rules_present() -> bool:
     root = sigma_root()
     return root.is_dir() and any(p.suffix in (".yml", ".yaml") for p in root.rglob("*"))
+
+
+def _has_rules(root: Path) -> bool:
+    return root.is_dir() and any(p.suffix in (".yml", ".yaml") for p in root.rglob("*"))
+
+
+def bundled_sigma_dir() -> Path:
+    return resource("resources/sigma")
+
+
+def bundled_sigma_present() -> bool:
+    return _has_rules(bundled_sigma_dir())
+
+
+def bundled_sigma_tag() -> str:
+    version = bundled_sigma_dir() / "VERSION"
+    try:
+        first = version.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        first = ""
+    return first or SIGMA_BUNDLED_TAG
+
+
+class SigmaSources(NamedTuple):
+    paths: list[Path]
+    label: str
+    kind: str
+
+
+def sigma_sources() -> SigmaSources:
+    """Rule folders to load. A SigmaHQ set downloaded by `rules update` replaces the bundled one; the user's
+    own rules in the same folder are always loaded."""
+    user = sigma_root()
+    if _has_rules(sigmahq_dir()):
+        version = sigmahq_dir() / "VERSION"
+        try:
+            release = version.read_text(encoding="utf-8").splitlines()[0].strip()
+        except (OSError, IndexError):
+            release = ""
+        return SigmaSources([user], f"downloaded SigmaHQ {release or 'rules'} in {user}", "downloaded")
+    if bundled_sigma_present():
+        return SigmaSources([bundled_sigma_dir(), user], f"bundled SigmaHQ {bundled_sigma_tag()}", "bundled")
+    if _has_rules(user):
+        return SigmaSources([user], f"your rules in {user}", "custom")
+    return SigmaSources([user], f"no rules in {user}", "none")
 
 
 def _download(url: str, dest: Path) -> str:

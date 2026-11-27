@@ -43,8 +43,9 @@ def test_doctor_lists_engine_requirements(home):
     env = dict(os.environ, INVESTIGATION_HOME=str(home), PYTHONPATH=str(ROOT))
     p = subprocess.run([sys.executable, "-m", "investigation", "doctor"], capture_output=True, text=True, env=env,
                        cwd=ROOT)
-    for text in ("pysigma", "yara-python", "volatility3", "Sigma rules (SigmaHQ)", "[WARN]", "rules update"):
+    for text in ("pysigma", "yara-python", "volatility3", "Sigma rules (SigmaHQ)"):
         assert text in p.stdout, text
+    assert "rules update" in p.stdout or "bundled SigmaHQ" in p.stdout
 
 
 def test_memory_profile_resolves():

@@ -8,6 +8,8 @@ __pycache__/
 build/
 dist/
 investigation/resources/winpmem/*.exe
+investigation/resources/sigma/*
+!investigation/resources/sigma/README.md
 
 # Analysis output and local evidence
 out/

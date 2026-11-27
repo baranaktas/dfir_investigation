@@ -11,7 +11,7 @@ from investigation.core.models import Event, Finding, Severity
 from investigation.core.module import DetectionModule, ErrorSink, ModuleMeta, ModuleType
 from investigation.core.registry import investigation_home, register
 from investigation.core.requirements import Context, PythonPackage, SigmaRules
-from investigation.core.rules_update import sigma_rules_present, update_sigma
+from investigation.core.rules_update import sigma_sources, update_sigma
 from investigation.core.store import EventStore
 from investigation.modules.detections.sigma_engine import FIELD_MAP_4688, CompiledRule, load_sigma
 
@@ -25,7 +25,7 @@ def sigma_dir() -> Path:
 
 def sigma_paths(ctx: Context) -> list[Path]:
     paths = [Path(p) for p in ctx.options.get("sigma_paths", [])]
-    return paths or [sigma_dir()]
+    return paths or sigma_sources().paths
 
 
 @register
@@ -36,12 +36,13 @@ class SigmaDetection(DetectionModule):
         type=ModuleType.DETECTION,
         requirements=(PythonPackage("pysigma", "sigma", min_version="1.0"), SigmaRules()),
     )
-    last_stats: ClassVar[dict[str, int]] = {}
+    last_stats: ClassVar[dict[str, Any]] = {}
 
     def detect(self, store: EventStore, ctx: Context, errors: ErrorSink | None = None) -> Iterator[Finding]:
         errors = errors or (lambda m, s: None)
         min_level = Severity.parse(ctx.options.get("sigma_min_level", "medium"))
-        if not ctx.options.get("sigma_paths") and not sigma_rules_present():
+        explicit = bool(ctx.options.get("sigma_paths"))
+        if not explicit and sigma_sources().kind == "none":
             import sys
 
             if ctx.allow_install and not getattr(sys, "frozen", False):
@@ -53,6 +54,7 @@ class SigmaDetection(DetectionModule):
             else:
                 log.warning("no Sigma rules installed; run 'investigation rules update'")
         rules, stats = load_sigma(sigma_paths(ctx), min_level)
+        stats["source"] = "paths given by the caller" if explicit else sigma_sources().label
         SigmaDetection.last_stats = stats
         if not rules:
             return

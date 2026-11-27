@@ -37,6 +37,8 @@ Assert-Ok "pip upgrade"
 Assert-Ok "pip install"
 & $vpy scripts\fetch_winpmem.py
 Assert-Ok "fetch_winpmem"
+& $vpy scripts\fetch_sigma.py
+Assert-Ok "fetch_sigma"
 & $vpy -m PyInstaller packaging\investigation.spec --clean --noconfirm
 Assert-Ok "PyInstaller"
 

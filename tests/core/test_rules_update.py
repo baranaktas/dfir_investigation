@@ -17,6 +17,9 @@ GOOD = (ROOT / "tests" / "fixtures" / "sigma" / "win_security_audit_log_cleared.
 def home(monkeypatch, tmp_path):
     h = tmp_path / "home"
     monkeypatch.setenv("INVESTIGATION_HOME", str(h))
+    from investigation.core import rules_update
+
+    monkeypatch.setattr(rules_update, "bundled_sigma_dir", lambda: tmp_path / "no-bundled")
     return h
 
 
@@ -90,10 +93,95 @@ def test_cli_rules_update_from_zip(tmp_path, home):
     assert "sigmahq" in p.stdout and "1" in p.stdout
 
 
-def test_doctor_warns_without_rules():
+def test_doctor_warns_without_rules(monkeypatch, tmp_path):
+    from investigation.core import rules_update
+
+    monkeypatch.setattr(rules_update, "bundled_sigma_dir", lambda: tmp_path / "none")
     from investigation.modules.detections.sigma import SigmaDetection
 
     results = [r.check(Context()) for r in SigmaDetection.all_requirements()]
     rules_check = [r for r in results if "Sigma rules" in r.requirement]
     assert rules_check and rules_check[0].status is Status.WARN
     assert "rules update" in rules_check[0].fix
+
+
+def _rule_tree(root, name="r.yml"):
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_text("title: t\n")
+
+
+@pytest.fixture
+def sigma_home(tmp_path, monkeypatch):
+    from investigation.core import rules_update
+
+    monkeypatch.setenv("INVESTIGATION_HOME", str(tmp_path / "home"))
+    bundled = tmp_path / "bundled"
+    monkeypatch.setattr(rules_update, "bundled_sigma_dir", lambda: bundled)
+    return tmp_path / "home" / "rules" / "sigma", bundled
+
+
+def test_sources_none(sigma_home):
+    from investigation.core.rules_update import sigma_sources
+
+    assert sigma_sources().kind == "none"
+
+
+def test_sources_bundled_with_own_rules(sigma_home):
+    from investigation.core.rules_update import sigma_sources
+
+    user, bundled = sigma_home
+    _rule_tree(bundled / "rules" / "windows")
+    (bundled / "VERSION").write_text("r2026-01-01\n")
+    _rule_tree(user / "mine")
+    src = sigma_sources()
+    assert src.kind == "bundled"
+    assert src.paths == [bundled, user]
+    assert "bundled SigmaHQ r2026-01-01" in src.label
+
+
+def test_downloaded_set_replaces_bundled(sigma_home):
+    from investigation.core.rules_update import sigma_sources
+
+    user, bundled = sigma_home
+    _rule_tree(bundled / "rules")
+    _rule_tree(user / "sigmahq" / "rules" / "windows")
+    (user / "sigmahq" / "VERSION").write_text("r2027-02-02\n")
+    _rule_tree(user / "mine")
+    src = sigma_sources()
+    assert src.kind == "downloaded"
+    assert src.paths == [user]
+    assert "r2027-02-02" in src.label
+
+
+def test_own_rules_alone_do_not_hide_bundled(sigma_home):
+    from investigation.core.rules_update import sigma_sources
+
+    user, bundled = sigma_home
+    _rule_tree(user / "mine")
+    assert sigma_sources().kind == "custom"
+    _rule_tree(bundled)
+    assert sigma_sources().kind == "bundled"
+
+
+def test_doctor_ok_with_bundled_set(sigma_home):
+    from investigation.modules.detections.sigma import SigmaDetection
+
+    _, bundled = sigma_home
+    _rule_tree(bundled / "rules")
+    results = [r.check(Context()) for r in SigmaDetection.all_requirements()]
+    check = [r for r in results if "Sigma rules" in r.requirement][0]
+    assert check.status is Status.OK
+    assert "bundled SigmaHQ" in check.detail
+
+
+def test_detect_loads_bundled_and_reports_source(sigma_home, tmp_path):
+    from investigation.core.store import EventStore
+    from investigation.modules.detections.sigma import SigmaDetection
+
+    user, bundled = sigma_home
+    _rule_tree(bundled)
+    (bundled / "VERSION").write_text("r2026-01-01\n")
+    store = EventStore(tmp_path / "s.db")
+    list(SigmaDetection().detect(store, Context(allow_install=False)))
+    store.close()
+    assert SigmaDetection.last_stats["source"] == "bundled SigmaHQ r2026-01-01"

@@ -60,7 +60,7 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
     {% endif %}
     {% if case.sigma %}<br>Sigma: {{ case.sigma.loaded }} rules loaded
       ({{ case.sigma.skipped_unsupported }} unsupported, {{ case.sigma.skipped_logsource }} other log sources,
-      {{ case.sigma.skipped_level }} below level, {{ case.sigma.invalid }} invalid)
+      {{ case.sigma.skipped_level }} below level, {{ case.sigma.invalid }} invalid){% if case.sigma.source %}, {{ case.sigma.source }}{% endif %}
       {% if not case.sigma.loaded %}- run <span class="mono">investigation rules update</span>{% endif %}{% endif %}
     &middot; Started {{ case.started_utc }} &middot; Finished {{ case.finished_utc }} (UTC)
   </div>
