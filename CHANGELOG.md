@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Events the collection itself caused (the collector executable, the WinPmem service and its Temp\pme*.tmp file, shadow copy and volume access, inside the collection window +-2 minutes) are listed under "Collection artefacts" in the report and never raise findings. `manifest.json` records the collector executable name and sha256.
 - YARA: the PowerShell download cradle rule now needs a real cradle (Invoke-Expression with DownloadString, DownloadData or Net.WebClient, a web request piped to iex, or -EncodedCommand with a download) and skips PSReadLine history; new rules for Cobalt Strike beacon configs, Sliver, Metasploit stagers, China Chopper, b374k, LaZagne, Rubeus, SharpHound, Seatbelt and ransom notes.
 - 58 new event log rules (INV-EVTX-037 to 094) for tunnelled RDP, BITS jobs, AD attribute and audit policy changes, NTDS copies, SQL Server abuse, process injection, UAC bypass, DLL side-loading, LOLBin proxy execution, PsExec and C2 named pipes, WMI consumers and shims; `scripts/benchmark_evtx.py --split` keeps a fixed holdout part of the samples.
 - The executable includes the SigmaHQ core Windows rules (release r2026-07-01), so Sigma runs without `rules update`; a set downloaded with `rules update` replaces the bundled one. The report and `doctor` name the rule source.

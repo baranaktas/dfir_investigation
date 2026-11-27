@@ -12,6 +12,7 @@ from investigation import __version__
 from investigation.core.models import Finding
 from investigation.core.module import ModuleType
 from investigation.core.package import ManifestError
+from investigation.core.artefacts import load_collector, mark
 from investigation.core.console import Throttle, say as _say
 from investigation.core.frozen import is_frozen
 from investigation.core.preflight import pip_installer, run_preflight
@@ -167,6 +168,7 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
         errors(modules_run[0], f"system info failed: {type(exc).__name__}: {exc}")
         system_info = {}
 
+    collector = load_collector(input_path)
     store = EventStore(out_dir / DB_NAME)
     findings: list[Finding] = []
     try:
@@ -178,7 +180,7 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
             modules_run.append(cls.meta.name)
             _say(f"[{number}/{steps}] parsing {cls.meta.name}")
             try:
-                n = store.add_many(_counted(cls().parse(source, ctx, errors), cls.meta.name))
+                n = store.add_many(mark(_counted(cls().parse(source, ctx, errors), cls.meta.name), collector))
                 _say(f"  {cls.meta.name}: {n} events")
                 log.info("parser %s produced %d events", cls.meta.name, n)
             except Exception as exc:
@@ -199,7 +201,7 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
                 try:
                     events = (replace(e, source_file=f"{prefix}:{e.source_file}", tags=tuple(e.tags) + ("vss",))
                               for e in cls().parse(sub, ctx, lambda m, msg, label=label: errors(label, msg)))
-                    store.add_many(events)
+                    store.add_many(mark(events, collector))
                 except Exception as exc:
                     errors(label, f"crashed: {type(exc).__name__}: {exc}")
 
@@ -235,6 +237,7 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
         preflight=preflight,
         module_errors=module_errors,
         modules_run=modules_run,
+        collector=collector,
     )
 
     if "sigma" in modules_run:

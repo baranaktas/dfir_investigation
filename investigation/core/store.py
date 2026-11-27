@@ -37,6 +37,7 @@ def _ts_key(ts: datetime) -> str:
     return ts.astimezone(timezone.utc).isoformat()
 
 
+_NOT_ARTEFACT = "tags NOT LIKE '%\"collection_artefact\"%'"
 _ORDER = " ORDER BY CASE WHEN tags LIKE '%\"no_timestamp\"%' THEN 1 ELSE 0 END, timestamp, id"
 _COLUMNS = ("SELECT timestamp, timestamp_desc, artifact, source_file, host, user, message, evidence_type,"
             " fields, tags FROM events")
@@ -91,8 +92,13 @@ class EventStore:
         artifact: str | None = None,
         field_equals: Mapping[str, Any] | None = None,
         limit: int | None = None,
+        include_artefacts: bool = False,
     ) -> Iterator[Event]:
+        """Events in time order. Events created by the collection itself (tag collection_artefact) are left
+        out unless `include_artefacts` is set."""
         where, params = [], []
+        if not include_artefacts:
+            where.append(_NOT_ARTEFACT)
         if artifact is not None:
             where.append("artifact = ?")
             params.append(artifact)
@@ -106,6 +112,11 @@ class EventStore:
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
         for row in self._conn.execute(sql, params):
+            yield self._row(row)
+
+    def iter_artefacts(self) -> Iterator[Event]:
+        sql = _COLUMNS + " WHERE tags LIKE '%\"collection_artefact\"%'" + _ORDER
+        for row in self._conn.execute(sql):
             yield self._row(row)
 
     def iter_with_id(

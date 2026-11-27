@@ -16,8 +16,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 from investigation import __version__
 from investigation.core.console import say as _say
+from investigation.core.frozen import is_frozen
 from investigation.core.module import ModuleType
-from investigation.core.package import LOG_NAME, write_manifest
+from investigation.core.package import LOG_NAME, hash_file, write_manifest
 from investigation.core.preflight import run_preflight
 from investigation.core.registry import ModuleRegistry
 from investigation.core.requirements import Context
@@ -36,6 +37,18 @@ class CollectResult:
 
 def default_parent() -> Path:
     return Path(sys.executable).parent if getattr(sys, "frozen", False) else Path.cwd()
+
+
+def collector_identity() -> dict[str, str]:
+    """Name and sha256 of the running executable (frozen builds only), so analysis can tell the events the
+    collection itself caused."""
+    if not is_frozen():
+        return {}
+    try:
+        exe = Path(sys.executable)
+        return {"name": exe.name, "sha256": hash_file(exe)["sha256"]}
+    except OSError:
+        return {}
 
 
 def package_dir_name(hostname: str, when: datetime) -> str:
@@ -202,6 +215,7 @@ def _run(root, selected, registry, started, hostname, case_id, examiner, confirm
         "case_id": case_id,
         "examiner": examiner,
         "hostname": hostname,
+        "collector": collector_identity(),
         "started_utc": _iso(started),
         "finished_utc": _iso(finished),
         "local_timezone": local.tzname() or "",

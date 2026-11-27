@@ -32,7 +32,7 @@ class CsvOutput(OutputModule):
         with path.open("w", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh)
             w.writerow(COLUMNS)
-            for e in result.store.iter_events():
+            for e in result.store.iter_events(include_artefacts=True):
                 d = e.to_dict()
                 w.writerow([neutralize(d[c]) for c in COLUMNS])
         commands = Path(out_dir) / "commands.csv"

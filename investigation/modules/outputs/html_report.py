@@ -44,6 +44,19 @@ def commands_payload(store: EventStore, limit: int = COMMANDS_LIMIT) -> dict:
     return {"columns": COMMAND_COLUMNS, "rows": out, "total": len(rows)}
 
 
+ARTEFACT_ROWS = 500
+
+
+def artefacts_payload(store: EventStore, limit: int = ARTEFACT_ROWS) -> dict:
+    """Events the collection caused: total, and the first `limit` as (time, artifact, event, file) rows."""
+    rows, total = [], 0
+    for e in store.iter_artefacts():
+        total += 1
+        if len(rows) < limit:
+            rows.append((e.timestamp.isoformat(), e.artifact, e.message, e.source_file))
+    return {"total": total, "rows": rows}
+
+
 def safe_json(data: object) -> str:
     """JSON that is safe to embed inside <script type="application/json">."""
     return (
@@ -194,6 +207,7 @@ class HtmlReport(OutputModule):
             timeline_json=safe_json(payload),
             command_total=commands["total"],
             command_shown=len(commands["rows"]),
+            artefacts=artefacts_payload(store),
             manifest=_manifest_summary(result.case),
             preflight=result.preflight,
             module_errors=result.module_errors,

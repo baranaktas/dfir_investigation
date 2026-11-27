@@ -117,6 +117,22 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
   <p class="muted">No findings. Absence of findings is not proof of absence - check the technical details for skipped modules.</p>
   {% endfor %}
 
+  <details class="section" id="artefacts">
+    <summary>Collection artefacts ({{ artefacts.total }})</summary>
+    <div class="body">
+      <p class="muted">Events created by the collection itself (the collector executable, the WinPmem service and its temporary driver file, shadow copy and volume access) inside the collection window. They never raise findings; all of them are in events.jsonl and timeline.csv.</p>
+      {% if artefacts.rows %}
+      <table>
+        <tr><th>Time (UTC)</th><th>Artifact</th><th>Event</th><th>Source</th></tr>
+        {% for t, a, m, f in artefacts.rows %}
+        <tr><td class="mono">{{ t }}</td><td class="mono">{{ a }}</td><td class="msg mono">{{ m }}</td><td class="mono">{{ f }}</td></tr>
+        {% endfor %}
+      </table>
+      {% if artefacts.total > artefacts.rows|length %}<p class="muted">Showing {{ artefacts.rows|length }} of {{ artefacts.total }}.</p>{% endif %}
+      {% else %}<p class="muted">None.</p>{% endif %}
+    </div>
+  </details>
+
   <details class="section" id="commands" data-page="{{ group_page }}">
     <summary>Commands ({{ command_total }})</summary>
     <div class="body">
