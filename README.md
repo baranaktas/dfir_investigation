@@ -351,7 +351,7 @@ from the evidence is inserted as plain text, never as HTML.
 | Engine | What it does | Rules |
 |---|---|---|
 | Built-in rules | 58 YAML rules over event logs, artifacts and memory, plus 9 command rules over every command source, with threshold, distinct-count and sequence correlation | `investigation/rules/builtin/`; your own in `~/.investigation/rules/*.yaml` |
-| Sigma | SigmaHQ rules evaluated against the parsed event logs; Security 4688 events are also matched against process-creation rules | Not included: run `investigation rules update` (internet) or `--from-zip` (offline). Your own in `~/.investigation/rules/sigma/` |
+| Sigma | SigmaHQ rules evaluated against the parsed event logs; Security 4688 events are also matched against process-creation rules | The executable includes the SigmaHQ core Windows rules, release r2026-07-01; `investigation rules update` (internet) or `--from-zip` (offline) installs a newer set, which replaces the bundled one. Your own in `~/.investigation/rules/sigma/` |
 | YARA | Scans Temp, Downloads, Desktop, Public, ProgramData, web roots and the Recycle Bin | 7 built-in rules (PHP, ASPX and JSP web shells, Mimikatz, Cobalt Strike, PowerShell download cradles, ransom notes); your own in `~/.investigation/rules/yara/` |
 | IOC | Hashes, IP addresses, domains (including subdomains), URLs and file names anywhere in the timeline; defanged input accepted | `--ioc list.txt` (repeatable) or `~/.investigation/ioc/*.txt` |
 | Live data | Unsigned process running from a user-writable path; living-off-the-land binary with an internet connection; WMI consumer that runs commands or scripts; Microsoft Defender weakened | Built-in |
@@ -433,6 +433,14 @@ loaded by the analyzer only; the collector runs built-in modules only.
 | Artifact parsers, E01 image | Sample files from the [dissect.target](https://github.com/fox-it/dissect.target) test data in the test suite |
 | The release executable | Built with Python 3.12.10 on GitHub Actions; the same build steps produced the executable used in the virtual machine tests |
 
+### Measuring detection
+
+`scripts/benchmark_evtx.py <samples folder>` analyzes every `.evtx` file of a local copy of
+[EVTX-ATTACK-SAMPLES](https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES) on its own and prints, per ATT&CK
+tactic folder, how many files produced any finding and how many produced a finding of that folder's tactic.
+`-o` sets the results folder (`results.csv` and `results.md`); `--builtin-only` leaves the Sigma rules out.
+The script downloads nothing.
+
 Not tested yet:
 
 - Memory imaging with WinPmem (the test machine was ARM64, where it is not available).
@@ -455,6 +463,7 @@ Reports from real use are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
   prepared symbol cache.
 - The executable is not code-signed. SmartScreen or antivirus software may warn about it; compare the
   SHA-256 with the release page.
+- The bundled SigmaHQ rules are the release r2026-07-01 and age until a new executable is built; `investigation rules update` downloads a newer set.
 - Building the executable requires Windows; see [docs/BUILD.md](docs/BUILD.md).
 
 ## License

@@ -52,8 +52,10 @@ The script stops at the first failing step:
    (PyInstaller included).
 3. Downloads WinPmem and verifies it against the pinned SHA-256 (`scripts/fetch_winpmem.py`). An existing
    file with the right hash is reused.
-4. Runs PyInstaller on `packaging/investigation.spec` and writes `dist\investigation.exe`.
-5. Smoke-tests the result with `--version` and `doctor`, then prints the executable's SHA-256.
+4. Downloads the pinned SigmaHQ rule release and verifies its SHA-256 (`scripts/fetch_sigma.py`), keeping the
+   Windows rules in `investigation\resources\sigma\`.
+5. Runs PyInstaller on `packaging/investigation.spec` and writes `dist\investigation.exe`.
+6. Smoke-tests the result with `--version` and `doctor`, then prints the executable's SHA-256.
 
 PyInstaller prints many `WARNING: Library not found`
 lines for Windows system DLLs (`VERSION.dll`, `bcrypt.dll`, `ntdll.dll`, ...) and some

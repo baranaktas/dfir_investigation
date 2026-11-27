@@ -26,6 +26,7 @@ The build environment contains the packages below; PyInstaller includes the part
 | WinPmem (`winpmem_mini_x64_rc2.exe`) | Apache-2.0 | https://github.com/Velocidex/WinPmem |
 | yara-python / libyara | Apache-2.0 / BSD-3-Clause | https://github.com/VirusTotal/yara-python |
 | pySigma | LGPL-2.1-only | https://github.com/SigmaHQ/pySigma |
+| SigmaHQ core Windows rules, release r2026-07-01 (`sigma_core.zip`, the rules are attributed to the SigmaHQ authors) | Detection Rule License 1.1 | https://github.com/SigmaHQ/sigma, https://github.com/SigmaHQ/Detection-Rule-License |
 | psutil | BSD-3-Clause | https://github.com/giampaolo/psutil |
 | pywin32 | PSF-2.0 | https://github.com/mhammond/pywin32 |
 | Jinja2, MarkupSafe | BSD-3-Clause | https://palletsprojects.com/ |
@@ -49,7 +50,6 @@ installed environment.
 
 | Material | License | Source |
 |---|---|---|
-| Sigma rules downloaded by `investigation rules update` (not bundled) | Detection Rule License 1.1 | https://github.com/SigmaHQ/sigma |
 | `tests/fixtures/sigma/*.yml` (a few SigmaHQ rules used in tests) | Detection Rule License 1.1 | https://github.com/SigmaHQ/sigma |
 | `tests/fixtures/evtx/*.evtx` (unmodified attack samples used in tests) | GPL-3.0 | https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES |
 | `tests/fixtures/windows/*` (unmodified artifact samples used in tests) | AGPL-3.0 | https://github.com/fox-it/dissect.target |

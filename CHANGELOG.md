@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The executable includes the SigmaHQ core Windows rules (release r2026-07-01), so Sigma runs without `rules update`; a set downloaded with `rules update` replaces the bundled one. The report and `doctor` name the rule source.
+- `scripts/benchmark_evtx.py` measures detection on a local copy of EVTX-ATTACK-SAMPLES.
 - Commands: a "Commands" section in the report and `commands.csv` list every command found in PowerShell
   history, Security 4688, Sysmon 1, PowerShell 4103/4104, live processes, memory command lines, console
   history from memory and RunMRU. Suspicious commands are marked and reported as findings (INV-CMD-001 to 009).
