@@ -15,6 +15,33 @@ class ManifestError(Exception):
     """manifest.json is present but cannot be used."""
 
 
+LARGE_MANIFEST = 256 * 1024**2
+
+
+def note_large_manifest(size: int) -> None:
+    if size > LARGE_MANIFEST:
+        from investigation.core.console import say
+
+        say(f"reading a {size / 1024**3:.1f} GiB {MANIFEST_NAME}, this needs about that much memory several times over")
+
+
+def read_zip_manifest(z: Any, info: Any) -> bytes:
+    """Manifest bytes from a zip member, never more than its header declares (a zip bomb lies about size)."""
+    note_large_manifest(info.file_size)
+    with z.open(info) as fh:
+        data = fh.read(info.file_size + 1)
+    if len(data) > info.file_size:
+        raise ManifestError(f"{MANIFEST_NAME} in the zip is larger than its header says")
+    return data
+
+
+def read_folder_manifest(path: Path) -> bytes:
+    size = path.stat().st_size
+    note_large_manifest(size)
+    with open(path, "rb") as fh:
+        return fh.read(size)
+
+
 LOG_NAME = "collection.log"
 FORMAT_VERSION = 1
 
@@ -183,7 +210,9 @@ def verify_zip(path: Path, progress: Callable[[str], None] = lambda msg: print(m
         if info is None:
             return [f"cannot find {MANIFEST_NAME} in the zip"]
         try:
-            manifest = json.loads(z.read(info).decode("utf-8-sig"))
+            manifest = json.loads(read_zip_manifest(z, info).decode("utf-8-sig"))
+        except ManifestError as exc:
+            return [str(exc)]
         except ValueError as exc:
             return [f"cannot read {MANIFEST_NAME}: {exc}"]
         if not isinstance(manifest, dict) or not isinstance(manifest.get("files", []), list):

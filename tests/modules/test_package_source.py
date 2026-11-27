@@ -373,3 +373,30 @@ def test_invalid_manifest_is_an_input_error(tmp_path):
     from investigation.cli import main
 
     assert main(["analyze", str(pkg), "-o", str(tmp_path / "o3")]) == 2
+
+
+def test_zip_manifest_larger_than_its_header_is_rejected(tmp_path, monkeypatch):
+    import io
+    from types import SimpleNamespace
+
+    from investigation.core.package import ManifestError, read_zip_manifest
+
+    liar = SimpleNamespace(open=lambda info: io.BytesIO(b"x" * 50))
+    with pytest.raises(ManifestError, match="larger than its header says"):
+        read_zip_manifest(liar, SimpleNamespace(file_size=10))
+
+    pkg = make_package(tmp_path)
+    z = tmp_path / "lie.zip"
+    _zip(pkg, z)
+    original = zipfile.ZipFile.infolist
+
+    def infolist(self):
+        out = original(self)
+        for i in out:
+            if i.filename.endswith(MANIFEST_NAME):
+                i.file_size = 10
+        return out
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", infolist)
+    with pytest.raises(ManifestError):
+        PackageSource().can_open(z)

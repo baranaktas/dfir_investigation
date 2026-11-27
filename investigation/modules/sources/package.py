@@ -17,7 +17,7 @@ from typing import BinaryIO, Iterator
 
 from investigation.core.module import ModuleMeta, ModuleType, SourceModule
 from investigation.core.package import (MANIFEST_NAME, UNVERIFIED_PREFIX, ManifestError, _unsafe,
-                                        dedup_problem, verify_manifest)
+                                        dedup_problem, read_folder_manifest, read_zip_manifest, verify_manifest)
 from investigation.core.registry import register
 from investigation.core.source import EvidenceSource
 from investigation.modules.sources import target as target_mod
@@ -49,7 +49,7 @@ def _check_folder_manifest(path: Path) -> bool:
     if not manifest.is_file():
         return False
     try:
-        problem = _manifest_problem(manifest.read_bytes())
+        problem = _manifest_problem(read_folder_manifest(manifest))
     except OSError as exc:
         problem = f"cannot read {MANIFEST_NAME}: {exc}"
     if problem:
@@ -77,8 +77,7 @@ def _zip_manifest(z: zipfile.ZipFile) -> tuple[str, bytes] | None:
     for prefix in ("", next(iter(tops)) + "/" if len(tops) == 1 else None):
         info = members.get(prefix + MANIFEST_NAME) if prefix is not None else None
         if info is not None:
-            with z.open(info) as fh:
-                return prefix, fh.read()
+            return prefix, read_zip_manifest(z, info)
     return None
 
 
