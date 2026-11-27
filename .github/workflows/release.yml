@@ -47,5 +47,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart("v")
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## $([regex]::Escape($ver))( |$)" | Select-Object -First 1).LineNumber
+          $notes = Get-Content .github/release-notes.md -Raw
+          if ($start) {
+            $section = @()
+            foreach ($line in $lines[$start..($lines.Count - 1)]) { if ($line -match '^## ') { break }; $section += $line }
+            $notes = "## Changes`n`n" + (($section -join "`n").Trim()) + "`n`n" + $notes
+          }
+          Set-Content -Path release-notes-final.md -Value $notes -Encoding utf8
           gh release create $tag dist\investigation.exe dist\investigation.exe.sha256 dist\build-requirements.txt `
-            --title "Investigation $tag" --notes-file .github/release-notes.md
+            --title "Investigation $tag" --notes-file release-notes-final.md
