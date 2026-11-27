@@ -1,0 +1,330 @@
+# Built-in EVTX detection rules.
+# Mapped to MITRE ATT&CK.
+# Schema: see investigation/modules/detections/builtin.py (RULE_KEYS).
+# `process_creation: true` expands a rule into an `a` (Sysmon 1) and a `b` (Security 4688) variant;
+# write Image / ParentImage - they are renamed to NewProcessName / ParentProcessName for 4688.
+
+# ---------------------------------------------------------------- anti-forensics
+- id: INV-EVTX-001
+  title: Security event log cleared
+  severity: high
+  mitre: [T1070.001]
+  description: The Security log was cleared (1102). Classic anti-forensics; always high priority.
+  match: {EventID: 1102}
+
+- id: INV-EVTX-002
+  title: Event log cleared
+  severity: high
+  mitre: [T1070.001]
+  description: The System log or another event log was cleared (104).
+  match: {EventID: 104, Provider_Name: Microsoft-Windows-Eventlog}
+
+# ---------------------------------------------------------------- services / tasks
+- id: INV-EVTX-003
+  title: New service installed
+  severity: medium
+  mitre: [T1543.003]
+  description: A service was installed (7045 System / 4697 Security). Used for persistence and lateral movement (PsExec).
+  note: Check ImagePath, ServiceName and the account. Software installs also create services.
+  match: {EventID: [7045, 4697]}
+
+- id: INV-EVTX-004
+  title: Service with suspicious image path
+  severity: high
+  mitre: [T1543.003, T1569.002]
+  description: A service was installed whose binary path points to a shell, script host, user-writable folder or admin share.
+  match: {EventID: [7045, 4697]}
+  contains:
+    ImagePath: ["cmd.exe", "cmd /c", "powershell", "%comspec%", "\\temp\\", "\\appdata\\", "\\programdata\\",
+                "\\users\\public\\", "rundll32", "mshta", "\\\\127.0.0.1\\", "admin$"]
+
+- id: INV-EVTX-005
+  title: PsExec-style remote execution service
+  severity: high
+  mitre: [T1569.002, T1021.002]
+  description: Service names used by PsExec and its clones (PSEXESVC, PAExec, RemCom, CSExec).
+  match: {EventID: [7045, 4697]}
+  contains: {ServiceName: ["psexesvc", "paexec", "remcomsvc", "csexecsvc"]}
+
+- id: INV-EVTX-006a
+  title: Scheduled task created
+  severity: medium
+  mitre: [T1053.005]
+  description: A scheduled task was registered (4698). The task XML is in the event.
+  match: {EventID: 4698}
+
+- id: INV-EVTX-006b
+  title: Scheduled task registered (Task Scheduler log)
+  severity: medium
+  mitre: [T1053.005]
+  description: A scheduled task was registered (TaskScheduler/Operational 106).
+  match: {EventID: 106, Channel: Microsoft-Windows-TaskScheduler/Operational}
+
+# ---------------------------------------------------------------- authentication
+- id: INV-EVTX-007
+  title: RDP logon
+  severity: low
+  mitre: [T1021.001]
+  description: Successful RemoteInteractive logon (4624 type 10).
+  note: Check the source IP - an external address is an initial-access indicator.
+  match: {EventID: 4624, LogonType: 10}
+
+- id: INV-EVTX-008
+  title: Password brute force
+  severity: high
+  mitre: [T1110.001]
+  description: 10 or more failed logons (4625) from one source within 5 minutes.
+  match: {EventID: 4625}
+  correlate: {type: threshold, count: 10, window_seconds: 300, group_by: IpAddress}
+
+- id: INV-EVTX-009
+  title: Password spraying
+  severity: high
+  mitre: [T1110.003]
+  description: Failed logons (4625) for 5 or more different accounts from one source within 10 minutes.
+  match: {EventID: 4625}
+  correlate: {type: distinct, field: TargetUserName, count: 5, window_seconds: 600, group_by: IpAddress}
+
+- id: INV-EVTX-010
+  title: Successful logon after repeated failures
+  severity: critical
+  mitre: [T1110]
+  description: A successful logon (4624) followed 5 or more failures (4625) from the same source within an hour - the password was probably guessed.
+  match: {EventID: 4625}
+  correlate: {type: sequence, then: {match: {EventID: 4624}}, min_count: 5, window_seconds: 3600, group_by: IpAddress}
+
+- id: INV-EVTX-011
+  title: Logon attempt with non-existent user
+  severity: low
+  mitre: [T1110]
+  description: 4625 with SubStatus 0xC0000064 - the user name does not exist (user name guessing or stale list).
+  match: {EventID: 4625, SubStatus: "0xc0000064"}
+
+- id: INV-EVTX-012
+  title: Account locked out
+  severity: medium
+  mitre: [T1110]
+  description: An account was locked out (4740).
+  match: {EventID: 4740}
+
+- id: INV-EVTX-013
+  title: Pass-the-Hash (NewCredentials logon via seclogo)
+  severity: high
+  mitre: [T1550.002]
+  description: 4624 logon type 9 with logon process seclogo - produced by runas /netonly and Mimikatz sekurlsa::pth.
+  match: {EventID: 4624, LogonType: 9, LogonProcessName: seclogo}
+
+- id: INV-EVTX-014
+  title: Logon with explicit credentials
+  severity: low
+  mitre: [T1078]
+  description: 4648 - a process logged on with explicitly supplied credentials (runas, PsExec with -u). Seen on the source host of lateral movement.
+  match: {EventID: 4648}
+
+# ---------------------------------------------------------------- Active Directory
+- id: INV-EVTX-015
+  title: Kerberoasting
+  severity: high
+  mitre: [T1558.003]
+  description: One account requested RC4 (0x17) service tickets for 5 or more different SPNs within 10 minutes (4769).
+  match: {EventID: 4769, TicketEncryptionType: "0x17"}
+  not: {ServiceName: krbtgt}
+  correlate: {type: distinct, field: ServiceName, count: 5, window_seconds: 600, group_by: TargetUserName}
+
+- id: INV-EVTX-016
+  title: AS-REP Roasting
+  severity: high
+  mitre: [T1558.004]
+  description: TGT requested without Kerberos pre-authentication (4768 PreAuthType 0).
+  match: {EventID: 4768, PreAuthType: "0"}
+
+- id: INV-EVTX-017
+  title: DCSync
+  severity: critical
+  mitre: [T1003.006]
+  description: Directory replication rights (DS-Replication-Get-Changes[-All]) used by a non-computer account (4662).
+  match: {EventID: 4662}
+  contains: {Properties: ["1131f6aa-9c07-11d1-f79f-00c04fc2dcd2", "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"]}
+  not_endswith: {SubjectUserName: ["$"]}
+
+# ---------------------------------------------------------------- accounts
+- id: INV-EVTX-018
+  title: User account created
+  severity: medium
+  mitre: [T1136.001]
+  description: A user account was created (4720) - possible backdoor account.
+  match: {EventID: 4720}
+
+- id: INV-EVTX-019
+  title: Account enabled or password reset
+  severity: low
+  mitre: [T1098]
+  description: An account was enabled (4722) or its password reset (4724) - reviving disabled accounts.
+  match: {EventID: [4722, 4724]}
+
+- id: INV-EVTX-020
+  title: Member added to security group
+  severity: high
+  mitre: [T1098]
+  description: A member was added to a global/local/universal security group (4728/4732/4756), e.g. Domain Admins or Administrators.
+  match: {EventID: [4728, 4732, 4756]}
+
+# ---------------------------------------------------------------- lateral movement
+- id: INV-EVTX-021
+  title: Administrative share access
+  severity: medium
+  mitre: [T1021.002]
+  description: ADMIN$ or C$ was accessed (5140/5145) - PsExec and lateral movement.
+  match: {EventID: [5140, 5145]}
+  endswith: {ShareName: ["\\admin$", "\\c$"]}
+
+# ---------------------------------------------------------------- PowerShell
+- id: INV-EVTX-022
+  title: Suspicious PowerShell script block
+  severity: high
+  mitre: [T1059.001]
+  description: Script block (4104) contains download cradles, encoded commands, Mimikatz or AMSI bypass strings.
+  match: {EventID: 4104}
+  contains:
+    ScriptBlockText: [" -enc ", " -encodedcommand ", " -ec ", " -e jab", " -e sqb", "frombase64string", "downloadstring", "downloadfile", "iex ",
+                      "iex(", "invoke-expression", "invoke-mimikatz", "net.webclient", "-nop -w hidden",
+                      "amsiutils", "amsiinitfailed"]
+
+- id: INV-EVTX-023a
+  title: PowerShell version 2 downgrade
+  severity: medium
+  mitre: [T1562.010]
+  description: PowerShell engine started with HostVersion 2.0 (classic log 400) - bypasses AMSI and script block logging.
+  match: {EventID: 400}
+  contains: {HostVersion: ["2.0"]}
+
+- id: INV-EVTX-023b
+  title: PowerShell version 2 downgrade (raw event data)
+  severity: medium
+  mitre: [T1562.010]
+  description: PowerShell engine started with HostVersion 2.0 (classic log 400, unparsed EventData).
+  match: {EventID: 400, Channel: Windows PowerShell}
+  contains: {Data: ["HostVersion=2.0"]}
+
+# ---------------------------------------------------------------- Defender
+- id: INV-EVTX-024
+  title: Defender protection disabled
+  severity: critical
+  mitre: [T1562.001]
+  description: Defender real-time / antispyware / antivirus protection was disabled (5001/5010/5012).
+  match: {EventID: [5001, 5010, 5012], Channel: Microsoft-Windows-Windows Defender/Operational}
+
+- id: INV-EVTX-025
+  title: Defender exclusion added
+  severity: high
+  mitre: [T1562.001]
+  description: Defender configuration changed to add an exclusion (5007).
+  match: {EventID: 5007, Channel: Microsoft-Windows-Windows Defender/Operational}
+  contains: {NewValue: ["exclusions"]}
+
+- id: INV-EVTX-026
+  title: Defender detected malware
+  severity: high
+  mitre: [T1204]
+  description: Defender detected (1116) or acted on (1117) malware.
+  match: {EventID: [1116, 1117], Channel: Microsoft-Windows-Windows Defender/Operational}
+
+# ---------------------------------------------------------------- WMI
+- id: INV-EVTX-027
+  title: WMI permanent event subscription
+  severity: high
+  mitre: [T1546.003]
+  description: A permanent WMI event consumer was registered (WMI-Activity 5861) - persistence.
+  match: {EventID: 5861, Channel: Microsoft-Windows-WMI-Activity/Operational}
+
+# ---------------------------------------------------------------- credential dumping
+- id: INV-EVTX-028
+  title: LSASS memory access
+  severity: critical
+  mitre: [T1003.001]
+  description: A process opened lsass.exe with read-capable access rights (Sysmon 10) - credential dumping.
+  note: Some EDR/AV products access LSASS legitimately - verify SourceImage.
+  match:
+    EventID: 10
+    Channel: Microsoft-Windows-Sysmon/Operational
+    GrantedAccess: ["0x1010", "0x1410", "0x1438", "0x143a", "0x1fffff", "0x1f3fff"]
+  endswith: {TargetImage: ["\\lsass.exe"]}
+
+- id: INV-EVTX-029
+  title: Memory dump via comsvcs.dll MiniDump
+  severity: critical
+  mitre: [T1003.001]
+  description: rundll32 comsvcs.dll MiniDump - a LOLBin technique used to dump LSASS.
+  process_creation: true
+  contains_all: {CommandLine: [["comsvcs"], ["minidump", "#24"]]}
+
+# ---------------------------------------------------------------- process tree
+- id: INV-EVTX-030
+  title: Office application spawned a shell
+  severity: high
+  mitre: [T1204.002, T1059]
+  description: Word/Excel/PowerPoint/Outlook started a shell or script host - malicious macro or exploit (phishing).
+  process_creation: true
+  endswith:
+    ParentImage: ["\\winword.exe", "\\excel.exe", "\\powerpnt.exe", "\\outlook.exe"]
+    Image: ["\\powershell.exe", "\\cmd.exe", "\\wscript.exe", "\\cscript.exe", "\\mshta.exe", "\\rundll32.exe"]
+
+- id: INV-EVTX-031
+  title: Web server spawned a shell
+  severity: critical
+  mitre: [T1505.003]
+  description: A web server process started a shell - web shell or web application exploit.
+  process_creation: true
+  endswith:
+    ParentImage: ["\\w3wp.exe", "\\httpd.exe", "\\tomcat.exe", "\\java.exe", "\\php-cgi.exe", "\\nginx.exe"]
+    Image: ["\\cmd.exe", "\\powershell.exe", "\\whoami.exe", "\\net.exe"]
+
+- id: INV-EVTX-032
+  title: WMI provider host spawned a process
+  severity: high
+  mitre: [T1047]
+  description: WmiPrvSE.exe started a shell or LOLBin - remote command execution over WMI (lateral movement).
+  process_creation: true
+  endswith:
+    ParentImage: ["\\wmiprvse.exe"]
+    Image: ["\\powershell.exe", "\\cmd.exe", "\\rundll32.exe", "\\mshta.exe"]
+
+# ---------------------------------------------------------------- LOLBins / ransomware
+- id: INV-EVTX-033
+  title: LOLBin abuse
+  severity: high
+  mitre: [T1218, T1105]
+  description: Signed Windows binary used to download or run remote code (certutil, regsvr32 Squiblydoo, bitsadmin, mshta, wmic).
+  process_creation: true
+  contains:
+    CommandLine: ["certutil -urlcache", "certutil.exe -urlcache", "certutil -decode", "certutil.exe -decode",
+                  "/i:http", "scrobj.dll", "bitsadmin /transfer", "bitsadmin.exe /transfer", "mshta http",
+                  "mshta.exe http", "process call create"]
+
+- id: INV-EVTX-034
+  title: Shadow copy or backup deletion
+  severity: critical
+  mitre: [T1490]
+  description: Shadow copies / backup catalog deleted or recovery disabled - classic last step before ransomware encryption.
+  process_creation: true
+  contains:
+    CommandLine: ["delete shadows", "shadowcopy delete", "delete catalog", "recoveryenabled no",
+                  "resize shadowstorage"]
+
+- id: INV-EVTX-035
+  title: Active Directory reconnaissance
+  severity: medium
+  mitre: [T1087.002, T1482]
+  description: Domain discovery commands (net group "domain admins", nltest, AdFind, SharpHound, ntdsutil).
+  process_creation: true
+  contains:
+    CommandLine: ["domain admins", "nltest /domain_trusts", "nltest /dclist", "adfind", "sharphound", "ntdsutil"]
+
+- id: INV-EVTX-036
+  title: Exfiltration or remote access tooling
+  severity: high
+  mitre: [T1567.002, T1219]
+  description: rclone / MEGA (exfiltration) or AnyDesk / ScreenConnect (remote access) executed.
+  process_creation: true
+  contains:
+    CommandLine: ["rclone", "mega.nz", "megacmd", "anydesk", "screenconnect"]

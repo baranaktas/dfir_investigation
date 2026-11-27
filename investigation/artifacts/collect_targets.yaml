@@ -1,0 +1,70 @@
+# Raw file collection targets (files_raw). Globs are relative to the drive root, "/" separated,
+# matched per segment with case-insensitive fnmatch; no "**".
+- {name: mft, paths: ["$MFT"], raw_only: true}
+- {name: logfile, paths: ["$LogFile"], raw_only: true}
+- {name: usnjrnl, paths: ["$Extend/$UsnJrnl:$J"], raw_only: true}
+- {name: secure_sds, paths: ["$Secure:$SDS"], raw_only: true}
+- name: registry_system
+  paths:
+    - "Windows/System32/config/SYSTEM*"
+    - "Windows/System32/config/SOFTWARE*"
+    - "Windows/System32/config/SAM*"
+    - "Windows/System32/config/SECURITY*"
+    - "Windows/System32/config/DEFAULT*"
+- {name: amcache, paths: ["Windows/AppCompat/Programs/Amcache.hve*"]}
+- name: registry_user
+  paths:
+    - "Users/*/NTUSER.DAT*"
+    - "Users/*/AppData/Local/Microsoft/Windows/UsrClass.dat*"
+- {name: evtx, paths: ["Windows/System32/winevt/Logs/*.evtx"]}
+- {name: prefetch, paths: ["Windows/Prefetch/*.pf"]}
+- {name: sru, paths: ["Windows/System32/sru/*"]}
+- {name: activities_cache, paths: ["Users/*/AppData/Local/ConnectedDevicesPlatform/*/ActivitiesCache.db*"]}
+- {name: pca, paths: ["Windows/appcompat/pca/*"]}
+- name: recent
+  paths:
+    - "Users/*/AppData/Roaming/Microsoft/Windows/Recent/*.lnk"
+    - "Users/*/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/*"
+    - "Users/*/AppData/Roaming/Microsoft/Windows/Recent/CustomDestinations/*"
+- name: explorer_caches
+  paths:
+    - "Users/*/AppData/Local/Microsoft/Windows/Explorer/thumbcache_*.db"
+    - "Users/*/AppData/Local/Microsoft/Windows/Explorer/iconcache_*.db"
+- {name: psreadline, paths: ["Users/*/AppData/Roaming/Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt"]}
+- name: browsers_chromium
+  paths:
+    - "Users/*/AppData/Local/Google/Chrome/User Data/*/History"
+    - "Users/*/AppData/Local/Google/Chrome/User Data/*/Network/Cookies"
+    - "Users/*/AppData/Local/Google/Chrome/User Data/*/Cookies"
+    - "Users/*/AppData/Local/Microsoft/Edge/User Data/*/History"
+    - "Users/*/AppData/Local/Microsoft/Edge/User Data/*/Network/Cookies"
+    - "Users/*/AppData/Local/Microsoft/Edge/User Data/*/Cookies"
+    - "Users/*/AppData/Local/BraveSoftware/Brave-Browser/User Data/*/History"
+    - "Users/*/AppData/Local/BraveSoftware/Brave-Browser/User Data/*/Network/Cookies"
+    - "Users/*/AppData/Local/BraveSoftware/Brave-Browser/User Data/*/Cookies"
+    - "Users/*/AppData/Roaming/Opera Software/Opera Stable/History"
+    - "Users/*/AppData/Roaming/Opera Software/Opera Stable/Network/Cookies"
+- name: browsers_firefox
+  paths:
+    - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/places.sqlite"
+    - "Users/*/AppData/Roaming/Mozilla/Firefox/Profiles/*/cookies.sqlite"
+- name: scheduled_tasks
+  paths:
+    - "Windows/System32/Tasks/*"
+    - "Windows/System32/Tasks/*/*"
+    - "Windows/System32/Tasks/*/*/*"
+    - "Windows/System32/Tasks/*/*/*/*"
+- name: startup_folders
+  paths:
+    - "ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/*"
+    - "Users/*/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/*"
+- {name: wmi_repository, paths: ["Windows/System32/wbem/Repository/*"]}
+- {name: hosts, paths: ["Windows/System32/drivers/etc/hosts"]}
+- {name: rdp_cache, paths: ["Users/*/AppData/Local/Microsoft/Terminal Server Client/Cache/*"]}
+- name: defender
+  paths:
+    - "ProgramData/Microsoft/Windows Defender/Quarantine/*/*"
+    - "ProgramData/Microsoft/Windows Defender/Support/MPLog-*"
+- {name: setupapi, paths: ["Windows/INF/setupapi.dev.log"]}
+- {name: recycle_bin, paths: ['$Recycle.Bin/*/$I*']}
+- {name: iis_logs, paths: ["inetpub/logs/LogFiles/*/*"]}

@@ -1,0 +1,22 @@
+name: ransomware
+description: Ransomware - execution, persistence, deletion of backups, file-system churn, exfiltration volume
+modules:
+  - "source:*"
+  - evtx
+  - prefetch
+  - bam
+  - amcache_files
+  - shimcache
+  - usnjrnl
+  - mft
+  - recyclebin
+  - runkeys
+  - services
+  - tasks
+  - srum_network
+  - browser_downloads
+  - powershell_history
+  - defender_exclusions
+  - defender_quarantine
+  - "detection:*"
+  - "output:*"

@@ -1,0 +1,4 @@
+name: memory
+description: Memory only - Volatility 3 analysis plus detections (use with a memory image or --memory)
+modules: ["source:*", memory, "detection:*", "output:*"]
+exclude: []

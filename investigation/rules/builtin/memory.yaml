@@ -1,0 +1,53 @@
+# Memory rules (Volatility 3 output).
+
+- id: INV-MEM-001
+  title: Injected executable code in memory (malfind)
+  severity: high
+  mitre: [T1055]
+  description: A private RWX memory region not backed by a file starts with an MZ header - an injected PE.
+  note: JIT compilers (.NET, browsers) also create RWX regions; inspect the region before concluding.
+  artifact: memory_malfind
+  contains: {Protection: [PAGE_EXECUTE_READWRITE]}
+  contains_all: {Hexdump|Notes: [["4d 5a", "MZ header"]]}
+
+- id: INV-MEM-002
+  title: Encoded or download-cradle PowerShell in a process command line
+  severity: high
+  mitre: [T1059.001]
+  description: A process in memory was started with an encoded command, download cradle or AMSI bypass.
+  artifact: memory_cmdline
+  contains:
+    Args: [" -enc ", " -encodedcommand ", " -ec ", " -e jab", " -e sqb", "frombase64string", "downloadstring",
+           "downloadfile", "iex ", "iex(", "invoke-expression", "net.webclient", "-nop -w hidden", "amsiutils"]
+
+- id: INV-MEM-003
+  title: Masquerading process name in memory
+  severity: critical
+  mitre: [T1036.005]
+  description: A running process name imitates a Windows system binary.
+  artifact: memory_process
+  contains:
+    ImageFileName: ["svch0st", "scvhost", "svchosts", "svhost.exe", "lsas.exe", "lsasss", "lssas", "expl0rer",
+                    "explorer32", "csrsss", "crss.exe", "rundll33", "winlogin.exe", "smsss"]
+
+- id: INV-MEM-004
+  title: External connection from a non-browser process
+  severity: medium
+  mitre: [T1071]
+  description: A process that is not a web browser has an established connection to a public IP address - C2 or injection.
+  note: Updaters, mail clients and cloud sync agents also connect out; check the owner and destination.
+  artifact: memory_network
+  match: {State: ESTABLISHED}
+  not_regex:
+    # private, loopback, link-local and unspecified only; IPv4-mapped IPv6 is judged by its IPv4 part
+    ForeignAddr: ['\A(?:(?:::ffff:)?(?:10\.|127\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.|0\.0\.0\.0\Z)|::1?\Z|\*\Z|-\Z|fe[89ab][0-9a-f]:|f[cd][0-9a-f]{2}:)']
+    Owner: ['\A(?:chrome|msedge|firefox|iexplore|brave|opera)\.exe\Z']
+
+- id: INV-MEM-005
+  title: Service binary in a user-writable location (memory)
+  severity: high
+  mitre: [T1543.003]
+  description: A service registered in memory points to a binary in Temp, Public, ProgramData, AppData or Downloads.
+  artifact: memory_service
+  contains:
+    Binary: ["\\appdata\\", "\\temp\\", "\\users\\public\\", "\\programdata\\", "\\downloads\\", "\\perflogs\\"]

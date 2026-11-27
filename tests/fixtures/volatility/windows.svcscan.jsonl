@@ -1,0 +1,1 @@
+{"Offset": 1, "Order": 5, "PID": 0, "Start": "SERVICE_AUTO_START", "State": "SERVICE_STOPPED", "Type": "SERVICE_WIN32_OWN_PROCESS", "Name": "updsvc", "Display": "Updater", "Binary": "C:\\Users\\Public\\upd.exe", "Binary (Registry)": "C:\\Users\\Public\\upd.exe", "Dll": null, "__children": []}

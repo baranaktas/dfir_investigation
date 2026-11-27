@@ -1,0 +1,4 @@
+name: full
+description: Everything - all sources, parsers, detections and outputs
+modules: ["source:*", "parser:*", "detection:*", "output:*"]
+exclude: []

@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Build investigation.exe
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File packaging\build_exe.ps1 -Python "${{ steps.python.outputs.python-path }}"
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist\investigation.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  investigation.exe" | Out-File -Encoding ascii dist\investigation.exe.sha256
+          Get-Content dist\investigation.exe.sha256
+          & build\venv\Scripts\python.exe -m pip freeze --exclude-editable | Out-File -Encoding ascii dist\build-requirements.txt
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: investigation-exe
+          path: |
+            dist/investigation.exe
+            dist/investigation.exe.sha256
+            dist/build-requirements.txt
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release create $tag dist\investigation.exe dist\investigation.exe.sha256 dist\build-requirements.txt `
+            --title "Investigation $tag" --notes-file .github/release-notes.md

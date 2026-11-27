@@ -1,0 +1,412 @@
+# Windows artifact catalog. Every entry becomes one parser module backed by a dissect.target plugin.
+# Schema: investigation/modules/parsers/dissect_adapter.py (SPEC_KEYS).
+#   timestamps: auto            -> one event per datetime field (description = field name)
+#   timestamps: {field: label}  -> only these fields; a datetime[] field yields one event per value
+#   message: python format string over the record's fields; missing fields render as ""
+#   note: interpretation caveat shown in the report when the artifact produced events
+#   drop: fields never stored (e.g. password hashes)
+
+# ------------------------------------------------------------------ evidence of execution
+- name: prefetch
+  function: prefetch
+  kwargs: {compact: true}
+  artifact: prefetch
+  evidence_type: execution
+  description: Prefetch - program execution with run count, last run and up to 7 previous runs
+  message: "{filename} executed (run count {runcount}) - {prefetch}"
+  timestamps: {ts: Last Run, previousruns: Previous Run}
+  note: Prefetch proves execution. It is disabled by default on Windows Server, so an empty Prefetch folder does not by itself mean it was wiped. The .pf file lists files loaded in the first ~10 seconds.
+
+- name: bam
+  function: bam
+  artifact: bam
+  evidence_type: execution
+  description: Background Activity Moderator - last execution time per program and user SID (Win10 1709+)
+  message: "{path}"
+  timestamps: {ts: Last Execution}
+  note: BAM entries are tied to a user SID and are cleaned up after some time; absence is not proof of non-execution.
+
+- name: userassist
+  function: userassist
+  artifact: userassist
+  evidence_type: execution
+  description: UserAssist - programs started from the GUI with run count and focus time
+  message: "{path} (runs {number_of_executions}, focus {application_focus_count})"
+  user: username
+  timestamps: {ts: Last Execution (GUI)}
+  note: UserAssist only records programs launched through Explorer (double-click, Start menu), not command-line execution.
+
+- name: amcache_files
+  function: amcache.application_files
+  artifact: amcache
+  evidence_type: existence
+  description: Amcache InventoryApplicationFile - executables seen on the system with SHA1
+  message: "{path} sha1={digest_sha1} publisher={publisher}"
+  timestamps: {mtime_regf: Amcache Key Last Written, link_date: PE Link Date}
+  note: Amcache alone does not prove execution - some entries only show the file existed. Corroborate with Prefetch, BAM or 4688/Sysmon 1. The SHA1 survives even if the file was deleted.
+
+- name: amcache_apps
+  function: amcache.applications
+  artifact: amcache
+  evidence_type: existence
+  description: Amcache InventoryApplication - installed programs
+  message: "{name} {publisher} ({root_dir_path})"
+  timestamps: {install_date: Install Date, mtime_regf: Amcache Key Last Written}
+
+- name: shimcache
+  function: shimcache
+  artifact: shimcache
+  evidence_type: existence
+  description: Shimcache / AppCompatCache - files seen by the compatibility engine
+  message: "{path} (entry {index})"
+  timestamps: {last_modified: File Last Modified}
+  note: On Windows 10+ Shimcache does not prove execution; the timestamp is the file's last modification time, not a run time. Entries are flushed at shutdown, so the newest ones may be missing on a live system.
+
+- name: srum_app
+  function: sru.application
+  artifact: srum
+  evidence_type: execution
+  description: SRUM application resource usage (~30-60 days)
+  message: "{app} user={user} fg_bytes_written={foreground_bytes_written}"
+  user: user
+  timestamps: {ts: SRUM Interval}
+
+- name: srum_network
+  function: sru.network_data
+  artifact: srum
+  evidence_type: network
+  description: SRUM network usage per application (bytes sent/received) - exfiltration volume
+  message: "{app} sent={bytes_sent} received={bytes_recvd}"
+  user: user
+  timestamps: {ts: SRUM Interval}
+  note: SRUM shows how much data each program sent - the key artifact for "which program exfiltrated how much".
+
+- name: activitiescache
+  function: activitiescache
+  artifact: activitiescache
+  evidence_type: user_activity
+  description: Windows Timeline (ActivitiesCache.db) - applications and documents used
+  message: "{app_id} {activity_type}"
+  timestamps: {start_time: Activity Start, end_time: Activity End}
+
+- name: powershell_history
+  function: powershell_history
+  artifact: powershell_history
+  evidence_type: user_activity
+  description: PSReadLine ConsoleHost_history.txt - commands typed in PowerShell
+  message: "{command}"
+  user: username
+  timestamps: {mtime: History File Modified}
+  note: PSReadLine history has no per-command timestamps; all commands share the history file's modification time. Order is preserved in the 'order' field.
+
+# ------------------------------------------------------------------ file / folder access
+- name: lnk
+  requires: [dissect.shellitem]
+  function: lnk
+  artifact: lnk
+  evidence_type: file_access
+  description: LNK shortcut files - opened files with target times, volume and machine id
+  message: "{lnk_path} -> {local_base_path}{common_path_suffix} {lnk_arguments}"
+  timestamps: {lnk_ctime: LNK Created (first open), lnk_mtime: LNK Modified (last open), target_mtime: Target Modified, target_ctime: Target Created}
+
+- name: jumplist_auto
+  requires: [dissect.shellitem]
+  function: jumplist.automatic_destination
+  artifact: jumplist
+  evidence_type: file_access
+  description: Jump Lists (AutomaticDestinations) - recent files per application
+  message: "{application_name}: {local_base_path}{common_path_suffix}"
+  timestamps: {lnk_mtime: Entry Modified, target_mtime: Target Modified}
+
+- name: jumplist_custom
+  requires: [dissect.shellitem]
+  function: jumplist.custom_destination
+  artifact: jumplist
+  evidence_type: file_access
+  description: Jump Lists (CustomDestinations)
+  message: "{application_name}: {local_base_path}{common_path_suffix}"
+  timestamps: {lnk_mtime: Entry Modified, target_mtime: Target Modified}
+
+- name: shellbags
+  requires: [dissect.shellitem]
+  function: shellbags
+  artifact: shellbags
+  evidence_type: file_access
+  description: ShellBags - folders opened in Explorer, including deleted, network and USB folders
+  message: "{path} ({type})"
+  user: username
+  timestamps: {regf_mtime: ShellBag Key Last Written, ts_mtime: Folder Modified, ts_btime: Folder Created}
+
+- name: mru_recentdocs
+  function: mru.recentdocs
+  artifact: mru
+  evidence_type: file_access
+  description: RecentDocs MRU - recently opened files by extension
+  message: "RecentDocs: {value}"
+  user: username
+  timestamps: {regf_mtime: MRU Key Last Written}
+
+- name: mru_opensave
+  requires: [dissect.shellitem]
+  function: mru.opensave
+  artifact: mru
+  evidence_type: file_access
+  description: OpenSavePidlMRU - files chosen in open/save dialogs
+  message: "OpenSave: {value}"
+  user: username
+  timestamps: {regf_mtime: MRU Key Last Written}
+
+- name: mru_lastvisited
+  requires: [dissect.shellitem]
+  function: mru.lastvisited
+  artifact: mru
+  evidence_type: file_access
+  description: LastVisitedPidlMRU - application and folder of the last open/save dialog
+  message: "LastVisited: {filename} {path}"
+  user: username
+  timestamps: {regf_mtime: MRU Key Last Written}
+
+- name: mru_office
+  function: mru.msoffice
+  artifact: mru
+  evidence_type: file_access
+  description: Microsoft Office file MRU
+  message: "Office: {value}"
+  user: username
+  timestamps: {ts: Last Opened, regf_mtime: MRU Key Last Written}
+
+- name: trusteddocs
+  function: trusteddocs
+  artifact: trusteddocs
+  evidence_type: file_access
+  description: Office Trusted Documents - documents where the user clicked "Enable Content" (macros)
+  message: "{application}: {document} ({state})"
+  user: username
+  timestamps: {ts_created: Trusted, ts_enabled: Content Enabled}
+  drop: [raw]
+
+- name: thumbcache
+  requires: [dissect.thumbcache]
+  function: thumbcache.thumbcache
+  artifact: thumbcache
+  evidence_type: file_access
+  description: Thumbcache index - thumbnails of images/documents viewed in Explorer
+  message: "{identifier} {path}"
+  heavy: true
+  drop: [header_checksum, data_checksum]
+
+- name: mru_run
+  function: mru.run
+  artifact: mru
+  evidence_type: user_activity
+  description: RunMRU - commands typed in the Win+R dialog
+  message: "Run: {value}"
+  user: username
+  timestamps: {regf_mtime: MRU Key Last Written}
+
+- name: mru_search
+  function: mru.acmru
+  artifact: mru
+  evidence_type: user_activity
+  description: ACMru - search terms (legacy Windows search)
+  message: "Search ({category}): {value}"
+  user: username
+  timestamps: {regf_mtime: MRU Key Last Written}
+
+# ------------------------------------------------------------------ existence / file system
+- name: recyclebin
+  function: recyclebin
+  artifact: recyclebin
+  evidence_type: existence
+  description: Recycle Bin $I files - original path, size and deletion time
+  message: "deleted {deleted_path} ({filesize} bytes)"
+  user: username
+  timestamps: {ts: Deleted}
+
+- name: mft
+  function: mft.records
+  kwargs: {compact: true}
+  artifact: mft
+  evidence_type: existence
+  description: $MFT - every file and folder with $SI/$FN timestamps (heavy)
+  message: "{path}"
+  heavy: true
+  note: $STANDARD_INFORMATION times can be changed from user mode (timestomping); $FILE_NAME times are much harder to change. $SI creation earlier than $FN creation, or sub-second parts of .0000000, suggest timestomping.
+
+- name: usnjrnl
+  function: usnjrnl
+  artifact: usnjrnl
+  evidence_type: existence
+  description: $UsnJrnl:$J - file create/rename/delete history, including deleted files (heavy)
+  message: "{path} {reason}"
+  timestamps: {ts: USN Change}
+  heavy: true
+
+# ------------------------------------------------------------------ persistence
+- name: runkeys
+  function: runkeys
+  artifact: runkeys
+  evidence_type: persistence
+  description: Run / RunOnce keys (HKLM and every user)
+  message: "{name} = {command} [{key}]"
+  user: username
+  timestamps: {ts: Key Last Written}
+
+- name: services
+  function: services
+  artifact: services
+  evidence_type: persistence
+  description: Services from the registry
+  message: "{name}: {imagepath} {imagepath_args} (start {start}, {objectname})"
+  timestamps: {ts: Service Key Last Written}
+
+- name: tasks
+  function: tasks
+  artifact: tasks
+  evidence_type: persistence
+  description: Scheduled tasks (XML and legacy .job)
+  message: "{uri}: {action} {app_name} {args}"
+  timestamps: {date: Task Registered, last_run_date: Last Run}
+  drop: [cpassword]
+
+- name: wmi_persistence
+  requires: [dissect.cim]
+  function: cim.consumerbindings
+  artifact: wmi
+  evidence_type: persistence
+  description: WMI permanent event subscriptions (filter/consumer bindings) from OBJECTS.DATA
+  message: "{filter_query} -> {command_line_template}{script_text}"
+
+- name: startupinfo
+  function: startupinfo
+  artifact: startupinfo
+  evidence_type: execution
+  description: StartupInfo XML - processes started in the first minutes after boot
+  message: "{path} {commandline} (pid {pid}, parent {parent_name})"
+  timestamps: {ts: Process Start}
+
+- name: winlogon_shell
+  function: alternateshell
+  artifact: winlogon
+  evidence_type: persistence
+  description: Alternate shell (SafeBoot AlternateShell)
+  message: "{path}"
+  user: username
+  timestamps: {ts: Key Last Written}
+
+- name: appinit
+  function: appinit
+  artifact: appinit
+  evidence_type: persistence
+  description: AppInit_DLLs - DLLs loaded into every GUI process
+  message: "{path}"
+  user: username
+  timestamps: {ts: Key Last Written}
+
+- name: cmd_autorun
+  function: commandprocautorun
+  artifact: autorun
+  evidence_type: persistence
+  description: Command Processor AutoRun - command run every time cmd.exe starts
+  message: "{path}"
+  user: username
+  timestamps: {ts: Key Last Written}
+
+# ------------------------------------------------------------------ devices / network / browser
+- name: usb
+  function: usb
+  artifact: usb
+  evidence_type: device
+  description: USB storage history - vendor, product, serial, first/last insert, volumes and users
+  message: "{vendor} {product} serial={serial} name={friendly_name} volumes={volumes} users={users}"
+  timestamps: {first_insert: First Insert, first_install: First Install, last_insert: Last Insert, last_removal: Last Removal}
+  note: Match the USB volume serials/names with LNK and ShellBags entries to show what was opened from the device.
+
+- name: network_history
+  function: network_history
+  artifact: network_history
+  evidence_type: network
+  description: Network profiles - networks the machine connected to
+  message: "{profile_name} ({description}) gateway_mac={default_gateway_mac}"
+  timestamps: {created: First Connected, last_connected: Last Connected}
+
+- name: rdp_outgoing
+  function: mru.mstsc
+  artifact: rdp
+  evidence_type: network
+  description: Terminal Server Client MRU - outgoing RDP connections from this host
+  message: "RDP to {value}"
+  user: username
+  timestamps: {regf_mtime: MRU Key Last Written}
+
+- name: rdp_cache
+  function: rdpcache.paths
+  artifact: rdp
+  evidence_type: network
+  description: RDP bitmap cache files - screen fragments of outgoing RDP sessions
+  message: "{path}"
+  user: username
+  timestamps: {ctime: Cache Created, mtime: Cache Modified}
+  note: The bitmap cache can be reconstructed into screen tiles (bmc-tools) to see what the user saw on the remote host.
+
+- name: browser_history
+  function: browser.history
+  artifact: browser
+  evidence_type: network
+  description: Browser history (Chrome, Edge, Firefox, Brave, IE)
+  message: "{browser}: {url} {title}"
+  user: username
+  timestamps: {ts: Visited}
+
+- name: browser_downloads
+  function: browser.downloads
+  artifact: browser
+  evidence_type: network
+  description: Browser downloads - where a file came from
+  message: "{browser} download: {url} -> {path} ({state})"
+  user: username
+  timestamps: {ts_start: Download Started, ts_end: Download Finished}
+
+- name: iis
+  function: iis.logs
+  artifact: iis
+  evidence_type: network
+  description: IIS web server access logs
+  message: "{client_ip} {request_method} {request_path}?{request_query} -> {service_status_code}"
+  timestamps: {ts: Request}
+
+# ------------------------------------------------------------------ defense / accounts
+- name: defender_exclusions
+  function: defender.exclusions
+  artifact: defender
+  evidence_type: other
+  description: Defender exclusions (paths, extensions, processes)
+  message: "exclusion {type}: {value}"
+  timestamps: {regf_mtime: Exclusions Key Last Written}
+
+- name: defender_quarantine
+  function: defender.quarantine
+  artifact: defender
+  evidence_type: other
+  description: Defender quarantine entries - detected malware and its original path
+  message: "{detection_name} {detection_path}"
+  timestamps: {ts: Quarantined, creation_time: File Created}
+
+- name: defender_mplog
+  function: defender.mplog
+  artifact: defender
+  evidence_type: other
+  description: Defender MPLog - process images and file activity seen by Defender
+  message: "{process_image_name}{path} {process}"
+  timestamps: {ts: Logged}
+  heavy: true
+
+- name: local_accounts
+  function: sam
+  artifact: accounts
+  evidence_type: authentication
+  description: Local accounts from the SAM hive (password hashes are never stored)
+  message: "{username} (RID {rid}) logins={logins} failed={failedlogins}"
+  user: username
+  timestamps: {lastlogin: Last Login, lastpasswordset: Password Set, lastincorrectlogin: Last Failed Login}
+  drop: [lm, nt]

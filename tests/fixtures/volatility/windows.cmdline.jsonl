@@ -1,0 +1,2 @@
+{"PID": 800, "Process": "svchost.exe", "Args": "C:\\Windows\\system32\\svchost.exe -k netsvcs", "__children": []}
+{"PID": 6666, "Process": "powershell.exe", "Args": "powershell.exe -nop -w hidden -enc SQBFAFgA", "__children": []}

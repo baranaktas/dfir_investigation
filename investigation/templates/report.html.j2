@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Investigation report{% if case.case_id %} - {{ case.case_id }}{% endif %}</title>
+<style>
+:root { --bg:#f7f7f8; --fg:#1d1d20; --muted:#666a73; --card:#fff; --line:#e2e3e8;
+  --critical:#b3261e; --high:#d9480f; --medium:#b08900; --low:#2f6fb0; --info:#6b7280; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141518; --fg:#e7e7ea; --muted:#9a9ea8; --card:#1c1d21;
+  --line:#2d2f35; --critical:#ff6b62; --high:#ff922b; --medium:#f2c94c; --low:#74a7ff; --info:#9ca3af; } }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg); }
+header, main { max-width:1280px; margin:0 auto; padding:16px 24px; }
+header h1 { margin:8px 0 4px; font-size:22px; }
+h2 { font-size:17px; margin:28px 0 10px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+.muted { color:var(--muted); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.tile { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+.tile b { display:block; font-size:22px; }
+.sev { display:inline-block; min-width:64px; text-align:center; border-radius:4px; padding:1px 6px;
+  font-size:12px; font-weight:600; color:#fff; text-transform:uppercase; }
+.sev-critical{background:var(--critical)} .sev-high{background:var(--high)} .sev-medium{background:var(--medium);color:#111}
+.sev-low{background:var(--low)} .sev-info{background:var(--info)}
+details.finding { background:var(--card); border:1px solid var(--line); border-radius:8px; margin:8px 0; }
+details.finding > summary { cursor:pointer; padding:10px 12px; list-style:none; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+details.finding > div { padding:0 12px 12px; }
+code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
+table { width:100%; border-collapse:collapse; background:var(--card); }
+th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-size:12px; color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--card); }
+td.msg { word-break:break-word; }
+.note { border-left:3px solid var(--medium); padding:4px 10px; margin:8px 0; }
+.controls { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+input, select, button { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+.st-ok{color:#2b8a3e} .st-missing{color:var(--critical);font-weight:600} .st-warn{color:var(--medium);font-weight:600}
+.scroll { max-height:70vh; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+details.tactic { border:1px solid var(--line); border-radius:8px; margin:12px 0; background:var(--bg); }
+details.tactic > summary, details.section > summary, details.tl-group > summary { cursor:pointer; padding:10px 12px; font-weight:600; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+details.tactic > .body, details.section > .body, details.tl-group > .body { padding:0 12px 12px; }
+details.section { border:1px solid var(--line); border-radius:8px; margin:12px 0; background:var(--bg); }
+details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0; background:var(--card); }
+.sev.small { min-width:0; padding:0 6px; }
+.src, .tac { display:inline-block; border:1px solid var(--line); border-radius:4px; padding:0 6px; font-size:11px; color:var(--muted); }
+.strip { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+.strip .sev { margin-right:4px; }
+.toolbar { position:sticky; top:0; z-index:2; background:var(--bg); padding:8px 0; border-bottom:1px solid var(--line); }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="muted">Investigation {{ case.tool_version }} &middot; incident response report</div>
+  <h1>{% if case.case_id %}Case {{ case.case_id }}{% else %}Investigation report{% endif %}</h1>
+  <div class="muted">
+    Input: <span class="mono">{{ case.input }}</span>
+    {% if case.examiner %} &middot; Examiner: {{ case.examiner }}{% endif %}
+    {% if case.system %}<br>System:
+      {% for k, v in case.system.items() %}{{ k }}: <span class="mono">{{ v }}</span>{% if not loop.last %} &middot; {% endif %}{% endfor %}
+    {% endif %}
+    {% if case.sigma %}<br>Sigma: {{ case.sigma.loaded }} rules loaded
+      ({{ case.sigma.skipped_unsupported }} unsupported, {{ case.sigma.skipped_logsource }} other log sources,
+      {{ case.sigma.skipped_level }} below level, {{ case.sigma.invalid }} invalid)
+      {% if not case.sigma.loaded %}- run <span class="mono">investigation rules update</span>{% endif %}{% endif %}
+    &middot; Started {{ case.started_utc }} &middot; Finished {{ case.finished_utc }} (UTC)
+  </div>
+</header>
+<main>
+  <div class="tile strip" id="summary">
+    <span>Events: <b>{{ total_events }}</b></span>
+    {% for s in severities %}<span><span class="sev sev-{{ s }}">{{ s }}</span>{{ severity_counts.get(s, 0) }}</span>{% endfor %}
+    <span class="muted">Sources:
+      {% for k, n in source_counts.items() %}<span class="src">{{ k }} {{ n }}</span> {% endfor %}</span>
+  </div>
+
+  <div class="controls toolbar">
+    <button id="expand-all" type="button">Expand all</button>
+    <button id="collapse-all" type="button">Collapse all</button>
+    <input id="search" type="search" placeholder="Filter findings and open timeline groups..." size="40" aria-label="Filter">
+    <span id="count" class="muted"></span>
+  </div>
+
+  <h2>Findings ({{ findings|length }})</h2>
+  {% for slug, name, fs in tactic_groups %}
+  <details class="tactic" data-tactic="{{ slug }}" open>
+    <summary>{{ name }} ({{ fs|length }})
+      {% for sev, n in sev_badges(fs) %}<span class="sev small sev-{{ sev }}">{{ n }} {{ sev }}</span>{% endfor %}</summary>
+    <div class="body">
+    {% for f in fs %}
+    <details class="finding"{% if f.severity >= 3 %} open{% endif %}>
+      <summary>
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <strong>{{ f.title }}</strong>
+        <span class="mono muted">{{ f.rule_id }}</span>
+        <span class="mono">{{ f.mitre|join(", ") }}</span>
+        {% for src in sources_of(f) %}<span class="src">{{ src }}</span>{% endfor %}
+        {% for t in tactic_names_of(f)[1:] %}<span class="tac">{{ t }}</span>{% endfor %}
+        <span class="muted">{{ f.events|length }} event(s)</span>
+      </summary>
+      <div>
+        <p>{{ f.description }}</p>
+        {% if f.note %}<div class="note">{{ f.note }}</div>{% endif %}
+        <table>
+          <tr><th>Time (UTC)</th><th>Host</th><th>User</th><th>Event</th><th>Source</th></tr>
+          {% for e in f.events[:finding_event_limit] %}
+          <tr><td class="mono">{% if "no_timestamp" in e.tags %}—{% else %}{{ e.timestamp.isoformat() }}{% endif %}</td><td>{{ e.host or "" }}</td><td>{{ e.user or "" }}</td>
+              <td class="msg mono">{{ e.message }}</td><td class="mono">{{ e.source_file }}</td></tr>
+          {% endfor %}
+        </table>
+        {% if f.events|length > finding_event_limit %}<p class="muted">Showing {{ finding_event_limit }} of {{ f.events|length }} events - all are in findings.json.</p>{% endif %}
+      </div>
+    </details>
+    {% endfor %}
+    </div>
+  </details>
+  {% else %}
+  <p class="muted">No findings. Absence of findings is not proof of absence - check the technical details for skipped modules.</p>
+  {% endfor %}
+
+  <details class="section" id="timeline" data-page="{{ group_page }}">
+    <summary>Timeline ({{ shown_events }} of {{ total_events }} events)</summary>
+    <div class="body">
+      <noscript><p class="note">Timeline needs JavaScript; see timeline.csv</p></noscript>
+      {% if shown_events < total_events %}<p class="note">Showing {{ shown_events }} of {{ total_events }} events &mdash; full timeline in timeline.csv</p>{% endif %}
+      {% for gid, label, n, tot in tl_groups %}
+      <details class="tl-group" data-group="{{ gid }}">
+        <summary>{{ label }} <span class="muted">(showing {{ n }}{% if tot is not none %} of {{ tot }}{% endif %})</span></summary>
+        <div class="body">
+          <div class="scroll"><table>
+            <thead><tr><th>Time (UTC)</th><th>Artifact</th><th>Evidence</th><th>Source</th><th>Host</th><th>User</th><th>Event</th><th>File</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="controls"><button type="button" class="more" hidden>Show {{ group_page }} more</button><span class="gcount muted"></span></div>
+        </div>
+      </details>
+      {% else %}<p class="muted">No events.</p>{% endfor %}
+    </div>
+  </details>
+
+  <details class="section" id="stories">
+    <summary>File stories ({{ stories|length }})</summary>
+    <div class="body">
+  {% if stories %}
+  <p class="muted">For each executable named in a finding: every event that mentions it, grouped by question.</p>
+  {% for s in stories %}
+  <details class="finding story">
+    <summary><strong class="mono">{{ s.name }}</strong>
+      {% for algo, h in s.hashes.items() %}<span class="mono muted">{{ algo }}={{ h }}</span>{% endfor %}</summary>
+    <div>
+    {% for section in story_sections %}
+      <h3 style="font-size:14px;margin:12px 0 4px">{{ section }}</h3>
+      {% if section == "Hashes" %}
+        {% if s.hashes %}{% for algo, h in s.hashes.items() %}<div class="mono">{{ algo }}: {{ h }}</div>{% endfor %}
+        {% else %}<div class="muted">no evidence found</div>{% endif %}
+      {% elif s.sections.get(section) %}
+        <table><tr><th>Time (UTC)</th><th>Artifact</th><th>What</th><th>User</th><th>Event</th></tr>
+        {% for e in s.sections[section][:finding_event_limit] %}
+        <tr><td class="mono">{% if "no_timestamp" in e.tags %}—{% else %}{{ e.timestamp.isoformat() }}{% endif %}</td>
+            <td class="mono">{{ e.artifact }}</td><td>{{ e.timestamp_desc }}</td><td>{{ e.user or "" }}</td>
+            <td class="msg mono">{{ e.message }}</td></tr>
+        {% endfor %}</table>
+        {% if s.truncated.get(section) %}<p class="muted">Truncated at 200 events - see the timeline for the rest.</p>{% endif %}
+      {% else %}<div class="muted">no evidence found</div>{% endif %}
+    {% endfor %}
+    </div>
+  </details>
+  {% endfor %}
+  {% else %}<p class="muted">None.</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="section" id="notes">
+    <summary>Interpretation notes ({{ notes|length }})</summary>
+    <div class="body">
+  {% if notes %}
+  <p class="muted">What these artifacts can and cannot prove - read before drawing conclusions.</p>
+  {% for artifact, note in notes.items() %}<div class="note"><span class="mono">{{ artifact }}</span>: {{ note }}</div>{% endfor %}
+  {% else %}<p class="muted">None.</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="section" id="technical">
+    <summary>Technical details</summary>
+    <div class="body">
+  <h3>Evidence chain</h3>
+  <p>Input: <span class="mono">{{ case.input }}</span>
+    {% for k, v in manifest.items() %} &middot; {{ k }}: <span class="mono">{{ v }}</span>{% endfor %}</p>
+  <div class="grid">
+    <div class="tile"><span class="muted">By artifact</span>
+      {% for a, n in artifact_counts.items() %}<div><span class="mono">{{ a }}</span>: {{ n }}</div>{% else %}<div class="muted">no events</div>{% endfor %}
+    </div>
+    <div class="tile"><span class="muted">By evidence type (what it proves)</span>
+      {% for a, n in evidence_counts.items() %}<div>{{ a }}: {{ n }}</div>{% else %}<div class="muted">no events</div>{% endfor %}
+    </div>
+  </div>
+
+  <h3>Preflight</h3>
+  {% if preflight.skipped %}
+  <p><strong>Skipped modules:</strong></p>
+  <ul>{% for name, why in preflight.skipped.items() %}<li><span class="mono">{{ name }}</span>: {{ why }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if preflight.installed %}<p>Auto-installed: <span class="mono">{{ preflight.installed|join(", ") }}</span></p>{% endif %}
+  <table>
+    <tr><th>Module</th><th>Requirement</th><th>Status</th><th>Detail</th><th>Fix</th></tr>
+    {% for mod, results in preflight.results.items() %}{% for r in results %}
+    <tr><td class="mono">{{ mod }}</td><td>{{ r.requirement }}</td><td class="st-{{ r.status.value }}">{{ r.status.value }}</td>
+        <td>{{ r.detail }}</td><td class="mono">{{ r.fix or "" }}</td></tr>
+    {% endfor %}{% endfor %}
+  </table>
+
+  <h3>Module errors ({{ module_errors|length }})</h3>
+  {% if module_errors %}
+  <table><tr><th>Module</th><th>Message</th></tr>
+  {% for m, msg in module_errors %}<tr><td class="mono">{{ m }}</td><td class="mono msg">{{ msg }}</td></tr>{% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+  <p class="muted">Modules run: <span class="mono">{{ modules_run|join(", ") }}</span></p>
+    </div>
+  </details>
+</main>
+<script type="application/json" id="timeline-data">{{ timeline_json|safe }}</script>
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById("timeline-data").textContent);
+  var PAGE = parseInt(document.getElementById("timeline").getAttribute("data-page"), 10) || 500;
+  var search = document.getElementById("search"), count = document.getElementById("count");
+  var byId = {};
+  data.groups.forEach(function (g) { byId[g.id] = g; });
+  var states = [];
+
+  function term() { return search.value.toLowerCase(); }
+
+  function rowEl(r) {
+    var tr = document.createElement("tr");
+    r.forEach(function (v, i) {
+      var td = document.createElement("td");
+      td.textContent = v;
+      if (i === 0 || i === 7) td.className = "mono";
+      if (i === 6) td.className = "msg mono";
+      tr.appendChild(td);
+    });
+    return tr;
+  }
+
+  function status(st) {
+    st.el.querySelector(".gcount").textContent = st.shown + " / " + st.filtered.length + " rows";
+    st.el.querySelector(".more").hidden = st.filtered.length <= st.shown;
+  }
+
+  function drawMore(st) {
+    var frag = document.createDocumentFragment();
+    st.filtered.slice(st.shown, st.shown + PAGE).forEach(function (r) { frag.appendChild(rowEl(r)); });
+    st.shown = Math.min(st.shown + PAGE, st.filtered.length);
+    st.el.querySelector("tbody").appendChild(frag);
+    status(st);
+  }
+
+  function refilter(st) {
+    var t = term();
+    if (!st.hay) st.hay = new Array(st.rows.length);
+    st.filtered = !t ? st.rows : st.rows.filter(function (r, i) {
+      var h = st.hay[i];
+      if (h === undefined) h = st.hay[i] = r.join(" ").toLowerCase();
+      return h.indexOf(t) !== -1;
+    });
+    st.shown = 0;
+    st.el.querySelector("tbody").textContent = "";
+    drawMore(st);
+  }
+
+  document.querySelectorAll("details.tl-group").forEach(function (el) {
+    var g = byId[el.getAttribute("data-group")];
+    if (!g) return;
+    var st = {el: el, rows: g.rows, filtered: g.rows, shown: 0, drawn: false, hay: null};
+    states.push(st);
+    function open() {
+      if (el.open && !st.drawn) { st.drawn = true; refilter(st); }
+    }
+    el.addEventListener("toggle", open);
+    el.querySelector(".more").addEventListener("click", function () { drawMore(st); });
+    open();
+  });
+
+  var findingText = new Map();
+  function applyFilter() {
+    var t = term(), shown = 0, total = 0;
+    document.querySelectorAll("details.tactic").forEach(function (tac) {
+      var any = false;
+      tac.querySelectorAll("details.finding").forEach(function (f) {
+        var h = findingText.get(f);
+        if (h === undefined) { h = f.textContent.toLowerCase(); findingText.set(f, h); }
+        var hit = !t || h.indexOf(t) !== -1;
+        f.hidden = !hit;
+        total += 1;
+        if (hit) { any = true; shown += 1; }
+      });
+      tac.hidden = !any;
+    });
+    states.forEach(function (st) { if (st.drawn) refilter(st); });
+    count.textContent = t ? shown + " / " + total + " findings match" : "";
+  }
+  var timer = null;
+  search.addEventListener("input", function () {
+    clearTimeout(timer);
+    timer = setTimeout(applyFilter, 150);
+  });
+
+  function setAll(open) {
+    document.querySelectorAll("details").forEach(function (d) { d.open = open; });
+  }
+  document.getElementById("expand-all").addEventListener("click", function () { setAll(true); });
+  document.getElementById("collapse-all").addEventListener("click", function () { setAll(false); });
+})();
+</script>
+</body>
+</html>

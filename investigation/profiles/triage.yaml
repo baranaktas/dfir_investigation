@@ -1,0 +1,4 @@
+name: triage
+description: Fast triage - everything except the heavy file-system and cache parsers ($MFT, $UsnJrnl, thumbcache, MPLog)
+modules: ["source:*", "parser:*", "detection:*", "output:*"]
+exclude: [mft, usnjrnl, thumbcache, defender_mplog]

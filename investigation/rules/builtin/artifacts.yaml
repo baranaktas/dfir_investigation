@@ -1,0 +1,174 @@
+# Built-in rules for disk artifacts (catalog: investigation/artifacts/windows.yaml).
+# `artifact` may be a list; a condition key "a|b" means "field a or field b".
+# Mapped to MITRE ATT&CK.
+
+- id: INV-ART-001
+  title: Execution from a user-writable location
+  severity: high
+  mitre: [T1204.002, T1036]
+  description: A program ran (BAM/UserAssist) or was recorded (Amcache) from Temp, Public, ProgramData, Downloads, the Recycle Bin or PerfLogs - typical malware staging folders.
+  note: Installers and updaters also run from Temp; check the file name, hash and surrounding timeline.
+  artifact: [bam, userassist, amcache]
+  contains:
+    path: ["\\appdata\\local\\temp\\", "\\users\\public\\", "\\programdata\\", "\\downloads\\", "\\windows\\temp\\",
+           "\\$recycle.bin\\", "\\perflogs\\"]
+
+- id: INV-ART-002
+  title: Known offensive or dual-use tool
+  severity: high
+  mitre: [T1588.002]
+  description: A file name matching a well-known attack or dual-use tool (credential dumping, AD recon, tunneling, exfiltration, remote access).
+  note: Admins legitimately use some of these (PsExec, 7-Zip, AnyDesk); confirm who ran it and why.
+  artifact: [prefetch, bam, amcache, shimcache, userassist]
+  contains:
+    filename|path|name: ["mimikatz", "psexec", "paexec", "procdump", "rclone", "adfind", "sharphound", "bloodhound",
+                         "lazagne", "rubeus", "kerbrute", "nanodump", "ngrok", "plink", "chisel", "netscan",
+                         "advanced_ip_scanner", "anydesk", "screenconnect", "atera", "7za.exe", "winrar",
+                         "cobaltstrike", "beacon.exe", "pwdump", "secretsdump", "crackmapexec", "impacket"]
+
+- id: INV-ART-003
+  title: Masquerading system binary name
+  severity: critical
+  mitre: [T1036.005]
+  description: A program name that imitates a Windows system binary (svch0st, scvhost, lsas, expl0rer, ...).
+  artifact: [prefetch, bam, amcache, shimcache]
+  contains:
+    filename|path|name: ["svch0st", "scvhost", "svchosts", "svhost.exe", "lsas.exe", "lsasss", "lssas", "expl0rer",
+                         "explorer32", "csrsss", "crss.exe", "rundll33", "winlogin.exe", "smsss", "taskhostw32"]
+
+- id: INV-ART-004
+  title: System binary name outside System32
+  severity: high
+  mitre: [T1036.005]
+  description: svchost/lsass/csrss/services/smss/winlogon/wininit executed or recorded outside the Windows system folders.
+  artifact: [bam, amcache]
+  endswith:
+    path: ["\\svchost.exe", "\\lsass.exe", "\\csrss.exe", "\\services.exe", "\\smss.exe", "\\winlogon.exe",
+           "\\wininit.exe"]
+  # Anchored: the path must START at the system root (optionally after a drive or volume prefix) and contain
+  # no "..": "C:\Users\Public\Windows\System32\svchost.exe" is NOT excluded.
+  not_regex:
+    path:
+      - '\A(?!.*\\\.\.?\\)(?:\\device\\harddiskvolume\d+|c:)?\\windows\\(?:system32|syswow64)\\[^\\]+\.exe\Z'
+      - '\A(?!.*\\\.\.?\\)(?:\\device\\harddiskvolume\d+|c:)?\\windows\\winsxs\\[^\\]+\\[^\\]+\.exe\Z'
+
+
+- id: INV-ART-005
+  title: Run key points to a suspicious location or interpreter
+  severity: high
+  mitre: [T1547.001]
+  description: A Run/RunOnce value starts a script interpreter, LOLBin, URL or a program in a user-writable folder.
+  artifact: runkeys
+  contains:
+    command: ["\\appdata\\", "\\temp\\", "\\users\\public\\", "\\programdata\\", "powershell", "mshta", "wscript",
+              "cscript", "rundll32", "regsvr32", "cmd /c", "cmd.exe /c", "http://", "https://"]
+  # Only the real OneDrive and Teams launchers with their known switches are excluded (anchored, \Z, no '..').
+  not_regex:
+    command:
+      - '\A(?!.*\\\.\.?(?:\\|"|\s|\Z))"?(?:[a-z]:)?\\users\\[^\\"\s/.][^\\"\s/]*\\appdata\\local\\microsoft\\onedrive\\onedrive\.exe"?(?:[ \t]+/(?:background|silent))*[ \t]*\Z'
+      - '\A(?!.*\\\.\.?(?:\\|"|\s|\Z))"?(?:[a-z]:)?\\users\\[^\\"\s/.][^\\"\s/]*\\appdata\\local\\microsoft\\teams\\update\.exe"?[ \t]+--processstart[ \t]+"?teams\.exe"?(?:[ \t]+--process-start-args[ \t]+"?--system-initiated"?)?[ \t]*\Z'
+
+
+- id: INV-ART-006
+  title: Service with suspicious image path (registry)
+  severity: high
+  mitre: [T1543.003]
+  description: A service binary points to a shell, script host, user-writable folder or admin share.
+  artifact: services
+  contains:
+    imagepath|imagepath_args: ["cmd.exe", "cmd /c", "powershell", "%comspec%", "\\temp\\", "\\appdata\\",
+                               "\\programdata\\", "\\users\\public\\", "rundll32", "mshta", "\\\\127.0.0.1\\",
+                               "admin$"]
+
+- id: INV-ART-007
+  title: Scheduled task runs a script, LOLBin or user-writable binary
+  severity: high
+  mitre: [T1053.005]
+  description: A scheduled task action starts PowerShell/mshta/wscript/rundll32/regsvr32, a URL, or a file in a user-writable folder.
+  artifact: tasks
+  contains:
+    app_name|args|action: ["powershell", "-enc", "mshta", "wscript", "cscript", "rundll32", "regsvr32",
+                           "\\appdata\\", "\\temp\\", "\\users\\public\\", "http://", "https://"]
+  note: Attackers often hide tasks under \Microsoft\Windows\ - built-in tasks are not excluded on purpose.
+
+- id: INV-ART-008
+  title: WMI event consumer persistence
+  severity: high
+  mitre: [T1546.003]
+  description: A permanent WMI event consumer exists in the WMI repository (OBJECTS.DATA).
+  note: SCM Event Log Consumer (BVTFilter) is a Windows default; anything running a command or script is suspicious.
+  artifact: wmi
+  contains:
+    command_line_template|script_text|executable_path: [""]
+
+- id: INV-ART-009
+  title: Defender exclusion configured
+  severity: high
+  mitre: [T1562.001]
+  description: A Defender exclusion (path, extension or process) is configured - attackers add exclusions before dropping tools.
+  artifact: defender
+  contains:
+    type: [""]
+  not:
+    type: ""
+
+- id: INV-ART-010
+  title: Suspicious PowerShell history
+  severity: high
+  mitre: [T1059.001]
+  description: PSReadLine history contains download cradles, encoded commands, Mimikatz or AMSI bypass strings.
+  artifact: powershell_history
+  contains:
+    command: [" -enc ", " -encodedcommand ", " -ec ", " -e jab", " -e sqb", "frombase64string", "downloadstring",
+              "downloadfile", "iex ", "iex(", "invoke-expression", "invoke-mimikatz", "net.webclient",
+              "-nop -w hidden", "amsiutils", "amsiinitfailed", "invoke-webrequest", "start-bitstransfer",
+              "set-mppreference", "add-mppreference"]
+
+- id: INV-ART-011
+  title: Browser download of an executable, script or disk image
+  severity: medium
+  mitre: [T1105, T1204.002]
+  description: A file that can execute code (exe, dll, script, HTA, LNK, ISO/IMG container, MSI) was downloaded.
+  artifact: browser
+  endswith:
+    path|url: [".exe", ".dll", ".ps1", ".bat", ".cmd", ".vbs", ".js", ".jse", ".hta", ".scr", ".iso", ".img",
+               ".lnk", ".msi", ".one", ".wsf"]
+
+- id: INV-ART-012
+  title: USB storage device connected
+  severity: info
+  mitre: [T1091, T1052.001]
+  description: A USB mass-storage device was connected.
+  note: Correlate the volume serial/name with LNK and ShellBags entries to see what was opened from it.
+  artifact: usb
+  contains:
+    serial|vendor|product: [""]
+
+- id: INV-ART-013
+  title: Outgoing RDP connection
+  severity: low
+  mitre: [T1021.001]
+  description: This host connected to another host over RDP (Terminal Server Client MRU).
+  artifact: rdp
+  contains:
+    value: [""]
+
+- id: INV-ART-014
+  title: Executable or script in the Recycle Bin
+  severity: medium
+  mitre: [T1070.004]
+  description: An executable or script was deleted - attackers delete their tools after use.
+  artifact: recyclebin
+  endswith:
+    deleted_path: [".exe", ".dll", ".ps1", ".bat", ".cmd", ".vbs", ".js", ".hta", ".scr"]
+
+- id: INV-ART-015
+  title: Ransomware note or encrypted-file extension
+  severity: critical
+  mitre: [T1486]
+  description: File names typical of ransom notes or ransomware-encrypted files.
+  artifact: [mft, usnjrnl, lnk, recyclebin]
+  contains:
+    path|lnk_path|deleted_path: ["how_to_decrypt", "how_to_restore", "decrypt_instructions", "restore-my-files",
+                                 "readme_to_decrypt", "_readme_.txt", "recover-files", "!!!_read", ".locked",
+                                 ".encrypted", ".lockbit", ".ryk", ".conti", ".blackcat", ".akira"]

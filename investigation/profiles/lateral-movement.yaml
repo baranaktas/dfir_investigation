@@ -1,0 +1,17 @@
+name: lateral-movement
+description: Lateral movement - logons, RDP in/out, remote services and tasks, WMI, network history
+modules:
+  - "source:*"
+  - evtx
+  - rdp_outgoing
+  - rdp_cache
+  - services
+  - tasks
+  - wmi_persistence
+  - prefetch
+  - bam
+  - shellbags
+  - network_history
+  - mru_run
+  - "detection:*"
+  - "output:*"
