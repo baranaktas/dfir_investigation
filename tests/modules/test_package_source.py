@@ -204,19 +204,24 @@ def test_malformed_manifest_files_not_fatal(tmp_path, files):
     assert any("malformed" in e for e in ev.access_errors())
 
 
-def test_manifest_not_a_dict_or_without_version_not_opened(tmp_path):
+def test_manifest_not_a_dict_or_without_version_is_rejected(tmp_path):
+    from investigation.core.package import ManifestError
+
     src = PackageSource()
     d = tmp_path / "a"
     d.mkdir()
     assert not src.can_open(d)
     (d / MANIFEST_NAME).write_text("[1]")
-    assert not src.can_open(d)
+    with pytest.raises(ManifestError):
+        src.can_open(d)
     (d / MANIFEST_NAME).write_text('{"files": []}')
-    assert not src.can_open(d)
+    with pytest.raises(ManifestError):
+        src.can_open(d)
     z = tmp_path / "a.zip"
     with zipfile.ZipFile(z, "w") as zf:
         zf.writestr("manifest.json", '{"files": []}')
-    assert not src.can_open(z)
+    with pytest.raises(ManifestError):
+        src.can_open(z)
     z2 = tmp_path / "b.zip"
     with zipfile.ZipFile(z2, "w") as zf:
         zf.writestr("x.txt", "1")
@@ -335,3 +340,58 @@ def test_close_leaves_no_open_files_in_temp(tmp_path):
                   if isinstance(o, io.IOBase) and not o.closed
                   and os.path.realpath(str(getattr(o, "name", ""))).startswith(temp)]
     assert still_open == []
+
+
+def _pad_manifest(pkg, entries=8000):
+    m = json.loads((pkg / MANIFEST_NAME).read_text(encoding="utf-8"))
+    m["files"] += [{"path": f"vss/9/C/pad/{i:07d}/" + "d/" * 1000 + "x.bin", "size": 0, "sha256": "0" * 64} for i in range(entries)]
+    (pkg / MANIFEST_NAME).write_text(json.dumps(m), encoding="utf-8")
+    assert (pkg / MANIFEST_NAME).stat().st_size > 16 * 1024 * 1024
+
+
+def test_manifest_over_old_limit_is_still_a_package(tmp_path):
+    pkg = make_package(tmp_path)
+    _pad_manifest(pkg)
+    assert PackageSource().can_open(pkg)
+    z = tmp_path / "big.zip"
+    _zip(pkg, z)
+    assert PackageSource().can_open(z)
+    result = analyze(pkg, tmp_path / "o", allow_install=False)
+    assert result.modules_run[0] == "investigation_package"
+
+
+def test_oversized_manifest_is_an_input_error(tmp_path):
+    from investigation.cli import main
+    from investigation.core.pipeline import InputError
+
+    pkg = make_package(tmp_path)
+    with open(pkg / MANIFEST_NAME, "r+b") as fh:
+        fh.truncate(int(1.2 * 1024**3))
+    with pytest.raises(InputError, match=r"manifest.json is 1\.2 GiB, larger than the 1 GiB limit"):
+        analyze(pkg, tmp_path / "o", allow_install=False)
+    assert main(["analyze", str(pkg), "-o", str(tmp_path / "o2")]) == 2
+
+
+def test_invalid_manifest_is_an_input_error(tmp_path):
+    from investigation.core.pipeline import InputError
+
+    pkg = make_package(tmp_path)
+    (pkg / MANIFEST_NAME).write_text("{not json", encoding="utf-8")
+    with pytest.raises(InputError, match="not a valid Investigation manifest"):
+        analyze(pkg, tmp_path / "o", allow_install=False)
+    (pkg / MANIFEST_NAME).write_text('{"files": []}', encoding="utf-8")
+    with pytest.raises(InputError, match="not a valid Investigation manifest"):
+        analyze(pkg, tmp_path / "o2", allow_install=False)
+
+
+def test_oversized_zip_manifest_is_an_input_error(tmp_path, monkeypatch):
+    from investigation.core import package as core_package
+    from investigation.core.pipeline import InputError
+
+    pkg = make_package(tmp_path)
+    z = tmp_path / "pkg.zip"
+    _zip(pkg, z)
+    monkeypatch.setattr(core_package, "MAX_MANIFEST", 100)
+    monkeypatch.setattr(package_mod, "MAX_MANIFEST", 100)
+    with pytest.raises(InputError, match="larger than the"):
+        analyze(z, tmp_path / "o", allow_install=False)

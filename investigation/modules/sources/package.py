@@ -16,7 +16,8 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterator
 
 from investigation.core.module import ModuleMeta, ModuleType, SourceModule
-from investigation.core.package import MANIFEST_NAME, UNVERIFIED_PREFIX, _unsafe, dedup_problem, verify_manifest
+from investigation.core.package import (MANIFEST_NAME, MAX_MANIFEST, UNVERIFIED_PREFIX, ManifestError, _unsafe,
+                                        dedup_problem, size_problem, verify_manifest)
 from investigation.core.registry import register
 from investigation.core.source import EvidenceSource
 from investigation.modules.sources import target as target_mod
@@ -27,26 +28,35 @@ log = logging.getLogger("investigation")
 _INFO_KEYS = ("hostname", "local_timezone")
 
 
-MAX_MANIFEST = 16 * 1024 * 1024
 COPY_BUDGET = 1024**3
 HEADROOM = 1024**3
 
 
-def _valid_manifest(data: bytes) -> dict | None:
+def _manifest_problem(data: bytes) -> str | None:
+    """Why `data` is not an Investigation manifest, or None when it is one."""
     try:
         m = json.loads(data.decode("utf-8-sig"))
-    except (ValueError, UnicodeDecodeError):
-        return None
-    return m if isinstance(m, dict) and "format_version" in m else None
+    except (ValueError, UnicodeDecodeError) as exc:
+        return f"{MANIFEST_NAME} is not a valid Investigation manifest: {exc}"
+    if not isinstance(m, dict) or "format_version" not in m:
+        return f"{MANIFEST_NAME} is not a valid Investigation manifest: missing format_version"
+    return None
 
 
-def _manifest_ok(path: Path) -> bool:
-    try:
-        with open(path / MANIFEST_NAME, "rb") as fh:
-            data = fh.read(MAX_MANIFEST + 1)
-    except OSError:
+def _check_folder_manifest(path: Path) -> bool:
+    """True for a folder with a usable manifest.json, False without one; raises ManifestError for a rejected one."""
+    manifest = path / MANIFEST_NAME
+    if not manifest.is_file():
         return False
-    return len(data) <= MAX_MANIFEST and _valid_manifest(data) is not None
+    try:
+        problem = size_problem(manifest.stat().st_size)
+        if problem is None:
+            problem = _manifest_problem(manifest.read_bytes())
+    except OSError as exc:
+        problem = f"cannot read {MANIFEST_NAME}: {exc}"
+    if problem:
+        raise ManifestError(problem)
+    return True
 
 
 def _safe_parts(name: str) -> tuple[str, ...]:
@@ -59,7 +69,8 @@ def _safe_parts(name: str) -> tuple[str, ...]:
 
 
 def _zip_manifest(z: zipfile.ZipFile) -> tuple[str, bytes] | None:
-    """(prefix, manifest bytes): prefix '' if manifest.json is at the zip root, 'dir/' if in the single top folder."""
+    """(prefix, manifest bytes): prefix '' if manifest.json is at the zip root, 'dir/' if in the single top folder.
+    Raises ManifestError when a manifest.json is there but too large."""
     members = {}
     for info in z.infolist():
         parts = _safe_parts(info.filename)
@@ -69,8 +80,9 @@ def _zip_manifest(z: zipfile.ZipFile) -> tuple[str, bytes] | None:
     for prefix in ("", next(iter(tops)) + "/" if len(tops) == 1 else None):
         info = members.get(prefix + MANIFEST_NAME) if prefix is not None else None
         if info is not None:
-            if info.file_size > MAX_MANIFEST:
-                return None
+            problem = size_problem(info.file_size)
+            if problem:
+                raise ManifestError(problem)
             with z.open(info) as fh:
                 return prefix, fh.read(MAX_MANIFEST + 1)
     return None
@@ -351,14 +363,21 @@ class PackageSource(SourceModule):
     def can_open(self, path: Path) -> bool:
         path = Path(path)
         if path.is_dir():
-            return _manifest_ok(path)
+            return _check_folder_manifest(path)
         if path.is_file() and path.name.casefold().endswith(".zip"):
             try:
                 with zipfile.ZipFile(path) as z:
                     found = _zip_manifest(z)
-                    return found is not None and _valid_manifest(found[1]) is not None
+            except ManifestError:
+                raise
             except Exception:
                 return False
+            if found is None:
+                return False
+            problem = _manifest_problem(found[1])
+            if problem:
+                raise ManifestError(problem)
+            return True
         return False
 
     def open(self, path: Path) -> PackageEvidence:

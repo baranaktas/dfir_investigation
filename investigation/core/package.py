@@ -9,6 +9,17 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 MANIFEST_NAME = "manifest.json"
+MAX_MANIFEST = 1024**3
+
+
+class ManifestError(Exception):
+    """manifest.json is present but cannot be used."""
+
+
+def size_problem(size: int) -> str | None:
+    if size > MAX_MANIFEST:
+        return f"{MANIFEST_NAME} is {size / 1024**3:.1f} GiB, larger than the {MAX_MANIFEST // 1024**3} GiB limit"
+    return None
 LOG_NAME = "collection.log"
 FORMAT_VERSION = 1
 
@@ -174,7 +185,7 @@ def verify_zip(path: Path, progress: Callable[[str], None] = lambda msg: print(m
         tops = {n.split("/", 1)[0] for n in members}
         prefix = "" if MANIFEST_NAME in members else (next(iter(tops)) + "/" if len(tops) == 1 else "")
         info = members.get(prefix + MANIFEST_NAME)
-        if info is None or info.file_size > 16 * 1024 * 1024:
+        if info is None or info.file_size > MAX_MANIFEST:
             return [f"cannot find {MANIFEST_NAME} in the zip"]
         try:
             manifest = json.loads(z.read(info).decode("utf-8-sig"))

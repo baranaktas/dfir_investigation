@@ -11,6 +11,7 @@ from pathlib import Path
 from investigation import __version__
 from investigation.core.models import Finding
 from investigation.core.module import ModuleType
+from investigation.core.package import ManifestError
 from investigation.core.console import Throttle, say as _say
 from investigation.core.frozen import is_frozen
 from investigation.core.preflight import pip_installer, run_preflight
@@ -151,6 +152,8 @@ def _run(input_path, out_dir, prof, modules, reg, case_id, examiner, allow_insta
                 modules_run.append(cls.meta.name)
                 log.info("opened input with source module %s", cls.meta.name)
                 break
+        except ManifestError as exc:
+            raise InputError(str(exc)) from None
         except Exception as exc:
             errors(cls.meta.name, f"{type(exc).__name__}: {exc}")
             open_failures.append(f"{cls.meta.name}: {exc}")
