@@ -14,6 +14,7 @@ BUILTIN_MODULES = [
     "investigation.modules.collectors.wmi",
     "investigation.modules.detections",
     "investigation.modules.detections.builtin",
+    "investigation.modules.detections.commands",
     "investigation.modules.detections.ioc",
     "investigation.modules.detections.live_rules",
     "investigation.modules.detections.process_tree",
