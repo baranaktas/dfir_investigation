@@ -24,7 +24,7 @@ BUILTIN_RULES_DIR = resource("rules/builtin")
 
 RULE_KEYS = {
     "id", "title", "severity", "mitre", "description", "note", "artifact", "match", "contains",
-    "contains_all", "endswith", "not", "not_endswith", "not_contains", "regex", "not_regex", "correlate",
+    "contains_all", "endswith", "not", "not_endswith", "not_contains", "regex", "not_regex", "not_all_regex", "correlate",
     "process_creation",
 }
 CORRELATE_KEYS = {
@@ -131,6 +131,7 @@ class Rule:
     not_contains: dict[str, Any] = field(default_factory=dict)
     regex: dict[str, Any] = field(default_factory=dict)
     not_regex: dict[str, Any] = field(default_factory=dict)
+    not_all_regex: dict[str, Any] = field(default_factory=dict)
     correlate: dict[str, Any] | None = None
 
     @property
@@ -157,6 +158,8 @@ class Rule:
         if self.regex and not _match_regex(event, self.regex):
             return False
         if self.not_regex and _match_regex_any(event, self.not_regex):
+            return False
+        if self.not_all_regex and _match_regex(event, self.not_all_regex):
             return False
         return True
 
@@ -204,6 +207,7 @@ def _parse_rule(raw: Any, origin: str) -> list[Rule]:
         not_contains=dict(raw.get("not_contains") or {}),
         regex=_compile(raw.get("regex") or {}, origin),
         not_regex=_compile(raw.get("not_regex") or {}, origin),
+        not_all_regex=_compile(raw.get("not_all_regex") or {}, origin),
         correlate=dict(corr) if corr else None,
     )
     if not raw.get("process_creation"):
@@ -214,7 +218,7 @@ def _parse_rule(raw: Any, origin: str) -> list[Rule]:
         base, id=f"{base.id}b", match={"EventID": 4688, **r(base.match)}, contains=r(base.contains),
         contains_all=r(base.contains_all), endswith=r(base.endswith), not_=r(base.not_),
         not_endswith=r(base.not_endswith), not_contains=r(base.not_contains), regex=r(base.regex),
-        not_regex=r(base.not_regex),
+        not_regex=r(base.not_regex), not_all_regex=r(base.not_all_regex),
     )
     return [sysmon, security]
 
@@ -377,4 +381,4 @@ class BuiltinRules(DetectionModule):
             if r.correlate:
                 yield from _correlate(r, matched, then_hits.get(r.id, []))
             else:
-                yield r.finding(matched)
+                yield r.finding(_drop_vss_twins(matched))

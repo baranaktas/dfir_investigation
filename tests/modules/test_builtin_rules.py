@@ -228,3 +228,52 @@ def test_user_rules_dir_loaded(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("INVESTIGATION_HOME", str(home))
     assert "USER-1" in ids(run(tmp_path / "a", [ev(0, EventID=9999)]))
+
+
+PMEM_PATH = r"C:\Users\bob\AppData\Local\Temp\pme1A2B.tmp"
+
+
+def test_log_cleared_only_for_security_channel(tmp_path):
+    assert "INV-EVTX-001" in ids(run(tmp_path / "a", [ev(EventID=1102)]))
+    other = [ev(EventID=1102, Channel="Microsoft-Windows-WebAuthN/Operational"),
+             ev(1, EventID=1102, Channel="Intel Graphics Software")]
+    assert "INV-EVTX-001" not in ids(run(tmp_path / "b", other))
+
+
+def test_explicit_credentials_ignores_machine_account_and_loopback(tmp_path):
+    noisy = ev(EventID=4648, SubjectUserName="BEBEK$", TargetUserName="someone@live.com", IpAddress="127.0.0.1")
+    assert "INV-EVTX-014" not in ids(run(tmp_path / "a", [noisy]))
+    loopback6 = ev(EventID=4648, SubjectUserName="bob", IpAddress="::1")
+    assert "INV-EVTX-014" not in ids(run(tmp_path / "b", [loopback6]))
+    machine = ev(EventID=4648, SubjectUserName="BEBEK$", IpAddress="10.0.0.5")
+    assert "INV-EVTX-014" not in ids(run(tmp_path / "c", [machine]))
+    real = ev(EventID=4648, SubjectUserName="bob", IpAddress="10.0.0.5")
+    assert "INV-EVTX-014" in ids(run(tmp_path / "d", [real]))
+
+
+def test_new_service_is_low(tmp_path):
+    f = run(tmp_path, [ev(EventID=7045, ServiceName="Foo", ImagePath=r"C:\Program Files\Foo\foo.exe")])
+    rule = next(x for x in f if x.rule_id == "INV-EVTX-003")
+    assert rule.severity is Severity.LOW and "routinely" in rule.note
+
+
+def test_winpmem_service_has_its_own_info_rule(tmp_path):
+    pmem = ev(EventID=7045, ServiceName="pmem", ImagePath=PMEM_PATH)
+    found = run(tmp_path / "a", [pmem])
+    assert ids(found) == ["INV-EVTX-004a"]
+    assert found[0].severity is Severity.INFO and found[0].title == "Memory acquisition driver loaded (WinPmem)"
+    assert found[0].mitre == ("T1003",)
+
+
+def test_pmem_lookalikes_are_still_reported(tmp_path):
+    wrong_name = ev(EventID=7045, ServiceName="pmem2", ImagePath=PMEM_PATH)
+    wrong_path = ev(1, EventID=7045, ServiceName="pmem", ImagePath=r"C:\Users\bob\AppData\Local\Temp\evil.exe")
+    got = ids(run(tmp_path, [wrong_name, wrong_path]))
+    assert "INV-EVTX-003" in got and "INV-EVTX-004" in got and "INV-EVTX-004a" not in got
+
+
+def test_non_correlated_finding_counts_vss_twin_once(tmp_path):
+    live = ev(EventID=1102)
+    found = run(tmp_path, [live, _vss(live)])
+    f = next(x for x in found if x.rule_id == "INV-EVTX-001")
+    assert len(f.events) == 1

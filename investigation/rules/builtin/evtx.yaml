@@ -10,7 +10,7 @@
   severity: high
   mitre: [T1070.001]
   description: The Security log was cleared (1102). Classic anti-forensics; always high priority.
-  match: {EventID: 1102}
+  match: {EventID: 1102, Channel: Security}
 
 - id: INV-EVTX-002
   title: Event log cleared
@@ -22,11 +22,14 @@
 # ---------------------------------------------------------------- services / tasks
 - id: INV-EVTX-003
   title: New service installed
-  severity: medium
+  severity: low
   mitre: [T1543.003]
   description: A service was installed (7045 System / 4697 Security). Used for persistence and lateral movement (PsExec).
-  note: Check ImagePath, ServiceName and the account. Software installs also create services.
+  note: Software and driver installs create services routinely; look at unusual names, paths and accounts.
   match: {EventID: [7045, 4697]}
+  not_all_regex:
+    ServiceName: ['^pmem$']
+    ImagePath: ['\\AppData\\Local\\Temp\\pme[0-9A-Fa-f]{1,8}\.tmp$']
 
 - id: INV-EVTX-004
   title: Service with suspicious image path
@@ -37,6 +40,19 @@
   contains:
     ImagePath: ["cmd.exe", "cmd /c", "powershell", "%comspec%", "\\temp\\", "\\appdata\\", "\\programdata\\",
                 "\\users\\public\\", "rundll32", "mshta", "\\\\127.0.0.1\\", "admin$"]
+  not_all_regex:
+    ServiceName: ['^pmem$']
+    ImagePath: ['\\AppData\\Local\\Temp\\pme[0-9A-Fa-f]{1,8}\.tmp$']
+
+- id: INV-EVTX-004a
+  title: Memory acquisition driver loaded (WinPmem)
+  severity: info
+  mitre: [T1003]
+  description: A WinPmem driver service was created. Investigation creates this when it takes a memory image; it can also mean someone else dumped memory.
+  note: Compare the time with the collection times of your packages.
+  match: {EventID: [7045, 4697], ServiceName: pmem}
+  regex:
+    ImagePath: ['\\AppData\\Local\\Temp\\pme[0-9A-Fa-f]{1,8}\.tmp$']
 
 - id: INV-EVTX-005
   title: PsExec-style remote execution service
@@ -120,6 +136,8 @@
   mitre: [T1078]
   description: 4648 - a process logged on with explicitly supplied credentials (runas, PsExec with -u). Seen on the source host of lateral movement.
   match: {EventID: 4648}
+  not_endswith: {SubjectUserName: ["$"]}
+  not: {IpAddress: ["127.0.0.1", "::1"]}
 
 # ---------------------------------------------------------------- Active Directory
 - id: INV-EVTX-015
