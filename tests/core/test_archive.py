@@ -156,3 +156,39 @@ def test_verify_detects_zip_hash_file_mismatch(monkeypatch, tmp_path, capsys):
     side.write_text("0" * 64 + "  x.zip\n")
     assert cli_mod.main(["verify", str(zip_path)]) == 1
     assert "does not match" in capsys.readouterr().out
+
+
+def test_only_selection_still_asks_about_the_zip(monkeypatch, tmp_path):
+    cli_mod, root = _cli(monkeypatch, tmp_path)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    asked = []
+    monkeypatch.setattr(cli_mod, "ask_yes_no", lambda q, *a, **k: asked.append(q) or False)
+    assert cli_mod.main(["collect", "--only", "live"]) == 0
+    assert "Compress the package into a zip?" in asked
+
+
+def test_menu_driven_collection_asks_about_the_zip(monkeypatch, tmp_path):
+    from investigation import console_menu
+    from investigation.core.collect_menu import CollectionChoice
+
+    cli_mod, root = _cli(monkeypatch, tmp_path)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    asked = []
+    monkeypatch.setattr(cli_mod, "ask_yes_no", lambda q, *a, **k: asked.append(q) or False)
+    monkeypatch.setattr(cli_mod, "list_volumes", lambda: [])
+    argvs = []
+    monkeypatch.setattr("investigation.core.collect_menu.ask_collection",
+                        lambda *a, **k: CollectionChoice(categories=["live"], drives=[], image_drives=[],
+                                                      output=str(tmp_path)))
+    monkeypatch.setattr("investigation.modules.collectors.volumes.list_volumes", lambda: [])
+    monkeypatch.setattr(console_menu, "_enable_vt", lambda: True)
+
+    def run_cli(argv):
+        argvs.append(argv)
+        return cli_mod.main(argv)
+
+    inputs = iter(["1", "", "0"])
+    console_menu.run_menu(input_fn=lambda p="": next(inputs), print_fn=lambda *a: None, run_cli=run_cli,
+                          base_dir=tmp_path)
+    assert argvs and argvs[0][0] == "collect" and "--only" in argvs[0]
+    assert "Compress the package into a zip?" in asked

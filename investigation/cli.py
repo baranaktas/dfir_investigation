@@ -195,6 +195,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
     interactive = not (args.all or args.only) and sys.stdin.isatty()
     auto = bool(args.all or args.yes)
     ask = sys.stdin.isatty() and not auto
+    ask_zip = sys.stdin.isatty() and not args.all
     confirm = ask_yes_no if ask else (lambda _: auto)
     declined_detail = "declined by examiner" if ask else "not confirmed (non-interactive; use --yes)"
 
@@ -252,12 +253,12 @@ def cmd_collect(args: argparse.Namespace) -> int:
     except (KeyboardInterrupt, Exception) as exc:
         root = getattr(exc, "package_root", None)
         if root is not None:
-            _offer_zip(Path(root), args.zip, interactive)
+            _offer_zip(Path(root), args.zip, ask_zip)
         raise
     counts = Counter(m["status"] for m in result.manifest.get("modules", []))
     print(f"Package: {result.root}")
     print(f"Status:  {result.manifest.get('status', '')} ({', '.join(f'{k}: {v}' for k, v in sorted(counts.items()))})")
-    _offer_zip(result.root, args.zip, interactive)
+    _offer_zip(result.root, args.zip, ask_zip)
     return EXIT_OK if result.exit_code == 0 else EXIT_PARTIAL
 
 
