@@ -122,3 +122,14 @@ def test_script_block_with_no_matching_evtx_rule_is_still_reported(tmp_path, mon
     findings = {f.rule_id: f for f in CommandRules().detect(store, Context())}
     assert set(findings) == {"INV-CMD-003"}
     assert findings["INV-CMD-003"].events[0].fields["ScriptBlockText"].startswith("vssadmin")
+
+
+def test_unrelated_low_severity_rule_does_not_hide_a_command_match(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / "rules").mkdir(parents=True)
+    (home / "rules" / "user.yaml").write_text(
+        "- id: INV-USR-001\n  title: Unrelated\n  severity: low\n  mitre: [T1082]\n  description: x\n"
+        "  artifact: powershell_history\n  contains: {command: [vssadmin]}\n", encoding="utf-8")
+    monkeypatch.setenv("INVESTIGATION_HOME", str(home))
+    store = store_of(tmp_path, [ev("powershell_history", command="vssadmin delete shadows /all /quiet")])
+    assert [f.rule_id for f in CommandRules().detect(store, Context())] == ["INV-CMD-003"]

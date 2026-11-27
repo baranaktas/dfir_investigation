@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from investigation.core.commands import PATTERNS, collect_commands
+from investigation.core.commands import PATTERNS, CommandPattern, collect_commands
 from investigation.core.models import Event, Finding
 from investigation.core.module import DetectionModule, ErrorSink, ModuleMeta, ModuleType
 from investigation.core.registry import register
@@ -28,10 +28,12 @@ class CommandRules(DetectionModule):
         except Exception:
             rules = []
 
-        def reported_elsewhere(event: Event) -> bool:
-            return any(r.matches(event) for r in rules)
+        def reported_elsewhere(event: Event, pattern: CommandPattern) -> bool:
+            techniques = {t.split(".")[0] for t in pattern.mitre}
+            return any(r.severity >= pattern.severity and techniques & {t.split(".")[0] for t in r.mitre}
+                       and r.matches(event) for r in rules)
 
         for p in PATTERNS:
-            hits = [r.event for r in rows if p.id in r.rules and not reported_elsewhere(r.event)]
+            hits = [r.event for r in rows if p.id in r.rules and not reported_elsewhere(r.event, p)]
             if hits:
                 yield Finding(p.id, p.title, p.severity, p.description, p.mitre, hits)
