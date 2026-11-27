@@ -63,3 +63,25 @@ def test_summarize_rates(mod):
 
 def test_missing_folder(mod, tmp_path):
     assert mod.main([str(tmp_path / "nope")]) == 2
+
+
+def test_split_is_deterministic(mod):
+    names = [f"Folder {i}/sample_{i}.evtx" for i in range(400)]
+    holdout = [n for n in names if mod.split_of(n) == "holdout"]
+    assert [mod.split_of(n) for n in names] == [mod.split_of(n) for n in names]
+    assert 0.2 < len(holdout) / len(names) < 0.4
+    assert {mod.split_of(n) for n in names} == {"train", "holdout"}
+
+
+def test_split_selects_disjoint_files(mod, samples):
+    files = sorted(samples.rglob("*.evtx"))
+    train = mod.select(files, samples, "train")
+    holdout = mod.select(files, samples, "holdout")
+    assert sorted(train + holdout) == files
+    assert not set(train) & set(holdout)
+    assert mod.select(files, samples, "all") == files
+
+
+def test_split_option_printed(mod, samples, tmp_path, capsys):
+    assert mod.main([str(samples), "-o", str(tmp_path / "res"), "--builtin-only", "--split", "train"]) == 0
+    assert "split: train" in capsys.readouterr().out

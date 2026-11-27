@@ -4,13 +4,17 @@ Each .evtx file is analyzed on its own. A file counts as detected when any findi
 a finding carries the ATT&CK tactic named by the file's folder (built-in rules through their technique ids, Sigma
 rules through their attack.* tags).
 
-Usage: python scripts/benchmark_evtx.py <samples folder> [-o results_dir] [--builtin-only]
+The --split option keeps a fixed part of the files aside: a file belongs to the holdout split when the first eight hex
+digits of the sha256 of its relative path, read as a number, leave a remainder below 3 when divided by 10 (about 30%).
+
+Usage: python scripts/benchmark_evtx.py <samples folder> [-o results_dir] [--builtin-only] [--split train|holdout|all]
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import logging
 import shutil
 import sys
@@ -34,6 +38,20 @@ def tactic_of(path: Path, root: Path) -> str:
         if slug:
             return slug
     return ""
+
+
+SPLITS = ("train", "holdout", "all")
+
+
+def split_of(relative: str) -> str:
+    digest = hashlib.sha256(relative.encode("utf-8")).hexdigest()
+    return "holdout" if int(digest[:8], 16) % 10 < 3 else "train"
+
+
+def select(files: list[Path], samples: Path, split: str) -> list[Path]:
+    if split == "all":
+        return files
+    return [f for f in files if split_of(f.relative_to(samples).as_posix()) == split]
 
 
 def analyze_file(file: Path, tactic: str, builtin_only: bool) -> dict:
@@ -62,9 +80,9 @@ def analyze_file(file: Path, tactic: str, builtin_only: bool) -> dict:
     return row
 
 
-def run(samples: Path, builtin_only: bool = False, progress: bool = False) -> list[dict]:
+def run(samples: Path, builtin_only: bool = False, progress: bool = False, split: str = "all") -> list[dict]:
     rows = []
-    files = sorted(samples.rglob("*.evtx"))
+    files = select(sorted(samples.rglob("*.evtx")), samples, split)
     start = time.time()
     for i, file in enumerate(files, 1):
         row = analyze_file(file, tactic_of(file, samples), builtin_only)
@@ -112,13 +130,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("samples", type=Path, help="folder with EVTX-ATTACK-SAMPLES")
     ap.add_argument("-o", "--output", type=Path, default=Path("benchmark_results"))
     ap.add_argument("--builtin-only", action="store_true", help="do not load any Sigma rules")
+    ap.add_argument("--split", choices=SPLITS, default="all", help="analyze only the train or the holdout files")
     args = ap.parse_args(argv)
     if not args.samples.is_dir():
         print(f"not a folder: {args.samples}", file=sys.stderr)
         return 2
+    print(f"split: {args.split}", flush=True)
     logging.disable(logging.CRITICAL)
     try:
-        rows = run(args.samples, args.builtin_only, progress=True)
+        rows = run(args.samples, args.builtin_only, progress=True, split=args.split)
     finally:
         logging.disable(logging.NOTSET)
     if not rows:
@@ -128,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     write_results(rows, table, args.output)
     print(render(table))
     errors = sum(1 for r in rows if r["error"])
-    print(f"errors: {errors}; results in {args.output}")
+    print(f"split: {args.split}; errors: {errors}; results in {args.output}")
     return 0
 
 
