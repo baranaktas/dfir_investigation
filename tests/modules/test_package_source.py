@@ -398,5 +398,4 @@ def test_zip_manifest_larger_than_its_header_is_rejected(tmp_path, monkeypatch):
         return out
 
     monkeypatch.setattr(zipfile.ZipFile, "infolist", infolist)
-    with pytest.raises(ManifestError):
-        PackageSource().can_open(z)
+    assert not PackageSource().can_open(z)

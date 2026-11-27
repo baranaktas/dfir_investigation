@@ -277,6 +277,7 @@ Output, by default in `<input name>_report/` in the current directory (choose an
 |---|---|
 | `report.html` | The report, a single file without external resources |
 | `timeline.csv` | All events |
+| `commands.csv` | Every command found, with source, user, process and the suspicious-command rule IDs |
 | `events.jsonl` | All events with every parsed field |
 | `findings.json` | Findings with rule ID, severity, ATT&CK techniques and the matching events |
 | `stories.json` | File stories |
@@ -309,6 +310,12 @@ always uses `full`.
 - **Findings**, grouped by ATT&CK tactic in kill-chain order (findings without a technique go under
   "Other"). Each finding shows its severity, rule ID, ATT&CK techniques, description, an analyst note and up
   to 50 of its events; all events are in `findings.json`.
+- **Commands**: every command run, from PowerShell history, Security 4688, Sysmon 1, PowerShell 4103 and
+  4104, live processes, memory command lines and console history, and RunMRU. Rows are sorted by time (rows
+  without a time, such as PowerShell history, come last grouped by file), can be filtered with the filter
+  box, and commands matching a suspicious pattern carry a "suspicious" badge. Long script blocks show the
+  first 300 characters with the rest expandable; `commands.csv` has the full text. cmd.exe history exists
+  only in memory images (Volatility `cmdscan` and `consoles`); Windows does not log it otherwise.
 - **Timeline**: the events around the findings first, then the rest. Up to 200,000 events are embedded in
   the page; the complete timeline is in `timeline.csv` and `investigation.db`.
 - **File stories**: for each executable named in a finding, the events that mention it, grouped into where
@@ -336,14 +343,14 @@ from the evidence is inserted as plain text, never as HTML.
 | Defense and accounts | Defender exclusions, quarantine and MPLog, local SAM accounts (password hashes are dropped) |
 | Event logs | All `.evtx` files |
 | Live data | The CSV files of a collection package |
-| Memory | Volatility 3 `pslist`, `psscan`, `cmdline`, `netscan`, `malfind`, `svcscan` |
+| Memory | Volatility 3 `pslist`, `psscan`, `cmdline`, `cmdscan`, `consoles`, `netscan`, `malfind`, `svcscan` |
 | YARA | Matches of the YARA scan (see below) |
 
 ## Detection
 
 | Engine | What it does | Rules |
 |---|---|---|
-| Built-in rules | 58 YAML rules over event logs, artifacts and memory, with threshold, distinct-count and sequence correlation | `investigation/rules/builtin/`; your own in `~/.investigation/rules/*.yaml` |
+| Built-in rules | 58 YAML rules over event logs, artifacts and memory, plus 9 command rules over every command source, with threshold, distinct-count and sequence correlation | `investigation/rules/builtin/`; your own in `~/.investigation/rules/*.yaml` |
 | Sigma | SigmaHQ rules evaluated against the parsed event logs; Security 4688 events are also matched against process-creation rules | Not included: run `investigation rules update` (internet) or `--from-zip` (offline). Your own in `~/.investigation/rules/sigma/` |
 | YARA | Scans Temp, Downloads, Desktop, Public, ProgramData, web roots and the Recycle Bin | 7 built-in rules (PHP, ASPX and JSP web shells, Mimikatz, Cobalt Strike, PowerShell download cradles, ransom notes); your own in `~/.investigation/rules/yara/` |
 | IOC | Hashes, IP addresses, domains (including subdomains), URLs and file names anywhere in the timeline; defanged input accepted | `--ioc list.txt` (repeatable) or `~/.investigation/ioc/*.txt` |

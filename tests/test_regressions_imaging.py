@@ -42,10 +42,10 @@ def test_only_memory_tty_asks(monkeypatch, tmp_path):
     calls, asked = [], []
     cli_mod = _fake_collect(monkeypatch, calls)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr(cli_mod, "ask_yes_no", lambda q: asked.append(q) or True)
+    monkeypatch.setattr(cli_mod, "ask_yes_no", lambda q: asked.append(q) or not q.startswith("Compress"))
     assert cli_mod.main(["collect", "--only", "memory", "-o", str(tmp_path)]) == 0
     kw = calls[0][1]
-    assert kw["confirm"]("RAM?") is True and asked == ["RAM?"]
+    assert kw["confirm"]("RAM?") is True and asked == ["Compress the package into a zip?", "RAM?"]
     assert kw["declined_detail"] == "declined by examiner"
 
 

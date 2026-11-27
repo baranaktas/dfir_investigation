@@ -10,6 +10,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from investigation.core.attack import TACTICS, primary_tactic, source_label, tactics_for
+from investigation.core.commands import collect_commands
 from investigation.core.models import Event, EvidenceType, Finding, Severity
 from investigation.core.module import ModuleMeta, ModuleType, OutputModule
 from investigation.core.registry import register
@@ -23,6 +24,24 @@ GROUP_PAGE = 500
 AROUND = timedelta(minutes=10)
 AROUND_CAP = 50_000
 FINDING_EVENT_LIMIT = 50
+COMMANDS_LIMIT = 50_000
+COMMAND_COLUMNS = ["Time (UTC)", "Source", "User", "Host", "Process", "Command", "More", "File", "Suspicious"]
+
+
+def commands_payload(store: EventStore, limit: int = COMMANDS_LIMIT) -> dict:
+    """Commands as report rows: the first 300 characters of the command, the rest separately (expandable).
+    Past `limit` rows only suspicious ones are added."""
+    rows = collect_commands(store)
+    room = max(0, limit - sum(1 for r in rows if r.rules))
+    out = []
+    for r in rows:
+        if not r.rules:
+            if room <= 0:
+                continue
+            room -= 1
+        out.append([r.time.isoformat() if r.time else "\u2014", r.source, r.user, r.host, r.process, r.head, r.rest,
+                    r.source_file, " ".join(r.rules)])
+    return {"columns": COMMAND_COLUMNS, "rows": out, "total": len(rows)}
 
 
 def safe_json(data: object) -> str:
@@ -156,6 +175,8 @@ class HtmlReport(OutputModule):
         env.globals["sev_badges"] = lambda fs: [(str(s), n) for s in sorted(Severity, reverse=True)
                                                 if (n := sum(1 for f in fs if f.severity == s))]
         payload = timeline_payload(store, findings, TIMELINE_LIMIT)
+        commands = commands_payload(store)
+        payload["commands"] = commands
         html = env.get_template("report.html.j2").render(
             case=result.case,
             findings=findings,
@@ -171,6 +192,8 @@ class HtmlReport(OutputModule):
             group_page=GROUP_PAGE,
             tl_groups=[(g["id"], g["label"], len(g["rows"]), g.get("total")) for g in payload["groups"]],
             timeline_json=safe_json(payload),
+            command_total=commands["total"],
+            command_shown=len(commands["rows"]),
             manifest=_manifest_summary(result.case),
             preflight=result.preflight,
             module_errors=result.module_errors,

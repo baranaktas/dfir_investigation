@@ -241,3 +241,34 @@ def test_group_summary_shows_x_of_y(tmp_path, monkeypatch):
     monkeypatch.setattr(hr, "TIMELINE_LIMIT", 9)
     html = render(tmp_path, [], [ev(i) for i in range(30)])
     assert "(showing 9 of 30)" in html
+
+
+def _cmd(minutes, command, artifact="powershell_history", **fields):
+    return ev(minutes, artifact=artifact, evidence_type=EvidenceType.USER_ACTIVITY, fields={"command": command, **fields})
+
+
+def test_commands_section_between_findings_and_timeline(tmp_path):
+    long = "A" * 1000
+    events = [_cmd(0, "Get-ChildItem"), _cmd(1, "vssadmin delete shadows /all /quiet"), _cmd(2, long),
+              ev(3, source_file="b/c.evtx", artifact="evtx", fields={"Channel": "Microsoft-Windows-PowerShell/Operational",
+                                                                 "EventID": 4104, "ScriptBlockText": "ipconfig /all"})]
+    html = render(tmp_path, [], events)
+    assert "Commands (4)" in html
+    assert html.index('id="commands"') < html.index('id="timeline"')
+    data = json.loads(re.search(r'id="timeline-data">(.*?)</script>', html, re.S).group(1))
+    rows = data["commands"]["rows"]
+    assert data["commands"]["total"] == 4 and len(re.findall(r"<script\b", html)) == 2
+    by_cmd = {r[5]: r for r in rows}
+    assert by_cmd["vssadmin delete shadows /all /quiet"][8] == "INV-CMD-003"
+    assert by_cmd["Get-ChildItem"][8] == "" and by_cmd["ipconfig /all"][8] == ""
+    assert by_cmd["A" * 300][6] == "A" * 700
+    assert rows[0][1] == "PowerShell 4104" and rows[0][0].startswith("2024-05-01")
+    assert all(r[0] == "—" for r in rows[1:])
+
+
+def test_commands_payload_keeps_suspicious_rows_over_the_limit(tmp_path):
+    store = EventStore(tmp_path / "db.sqlite")
+    store.add_many([_cmd(i, f"echo {i}") for i in range(5)] + [_cmd(9, "wevtutil cl Security")])
+    payload = hr.commands_payload(store, limit=3)
+    assert payload["total"] == 6 and len(payload["rows"]) == 3
+    assert any(r[5] == "wevtutil cl Security" for r in payload["rows"])

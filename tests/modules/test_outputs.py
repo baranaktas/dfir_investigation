@@ -57,7 +57,7 @@ def result(tmp_path):
 def test_csv_sorted_and_header(result, tmp_path):
     out = tmp_path / "out"
     out.mkdir()
-    [path] = CsvOutput().write(result, out, Context())
+    [path, _] = CsvOutput().write(result, out, Context())
     rows = list(csv.reader(path.open(encoding="utf-8")))
     assert rows[0] == ["timestamp", "timestamp_desc", "artifact", "evidence_type", "host", "user", "message",
                        "source_file"]
@@ -127,7 +127,7 @@ def test_csv_neutralizes_formulas(tmp_path):
     res = AnalysisResult(case={}, store=store, findings=[], preflight=PreflightReport())
     out = tmp_path / "out"
     out.mkdir()
-    [path] = CsvOutput().write(res, out, Context())
+    [path, _] = CsvOutput().write(res, out, Context())
     rows = list(csv.reader(path.open(encoding="utf-8")))
     assert rows[1][6] == "'=HYPERLINK(\"http://evil\",\"x\")"
     assert rows[1][5] == "'+cmd|' /C calc'!A0"
@@ -166,3 +166,21 @@ def test_no_timestamp_rendered_last(tmp_path):
                        timestamp=datetime(1970, 1, 1, tzinfo=timezone.utc), timestamp_desc="No Timestamp")])
     rows = [e.message for e in store.iter_events()]
     assert rows == ["normal", "undated"]
+
+
+def test_commands_csv_is_written_and_neutralised(tmp_path):
+    store = EventStore(tmp_path / "c.sqlite")
+    store.add_many([
+        ev(1, artifact="powershell_history", fields={"command": "=cmd|' /c calc'"}, host=None),
+        ev(2, artifact="powershell_history", fields={"command": "vssadmin delete shadows /all"}),
+    ])
+    res = AnalysisResult(case={}, store=store, findings=[], preflight=PreflightReport(), module_errors=[],
+                         modules_run=[])
+    out = tmp_path / "o"
+    out.mkdir()
+    paths = CsvOutput().write(res, out, Context())
+    assert [p.name for p in paths] == ["timeline.csv", "commands.csv"]
+    rows = list(csv.reader((out / "commands.csv").open(encoding="utf-8")))
+    assert rows[0][:2] == ["time", "source"]
+    assert sorted(r[5] for r in rows[1:]) == ["'=cmd|' /c calc'", "vssadmin delete shadows /all"]
+    assert [r[7] for r in rows[1:] if "vssadmin" in r[5]] == ["INV-CMD-003"]

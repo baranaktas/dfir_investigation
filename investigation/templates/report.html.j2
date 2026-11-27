@@ -76,7 +76,7 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
   <div class="controls toolbar">
     <button id="expand-all" type="button">Expand all</button>
     <button id="collapse-all" type="button">Collapse all</button>
-    <input id="search" type="search" placeholder="Filter findings and open timeline groups..." size="40" aria-label="Filter">
+    <input id="search" type="search" placeholder="Filter findings, commands and open timeline groups..." size="40" aria-label="Filter">
     <span id="count" class="muted"></span>
   </div>
 
@@ -116,6 +116,20 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
   {% else %}
   <p class="muted">No findings. Absence of findings is not proof of absence - check the technical details for skipped modules.</p>
   {% endfor %}
+
+  <details class="section" id="commands" data-page="{{ group_page }}">
+    <summary>Commands ({{ command_total }})</summary>
+    <div class="body">
+      <noscript><p class="note">Commands need JavaScript; see commands.csv</p></noscript>
+      {% if command_shown < command_total %}<p class="note">Showing {{ command_shown }} of {{ command_total }} commands &mdash; all of them are in commands.csv</p>{% endif %}
+      <p class="muted">PowerShell history has no per-command time. cmd.exe history appears only when a memory image was analysed.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Time (UTC)</th><th>Source</th><th>User</th><th>Host</th><th>Process</th><th>Command</th><th>File</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="controls"><button type="button" class="more" hidden>Show {{ group_page }} more</button><span class="gcount muted"></span></div>
+    </div>
+  </details>
 
   <details class="section" id="timeline" data-page="{{ group_page }}">
     <summary>Timeline ({{ shown_events }} of {{ total_events }} events)</summary>
@@ -249,7 +263,7 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
 
   function drawMore(st) {
     var frag = document.createDocumentFragment();
-    st.filtered.slice(st.shown, st.shown + PAGE).forEach(function (r) { frag.appendChild(rowEl(r)); });
+    st.filtered.slice(st.shown, st.shown + PAGE).forEach(function (r) { frag.appendChild((st.build || rowEl)(r)); });
     st.shown = Math.min(st.shown + PAGE, st.filtered.length);
     st.el.querySelector("tbody").appendChild(frag);
     status(st);
@@ -280,6 +294,61 @@ details.tl-group { border:1px solid var(--line); border-radius:8px; margin:8px 0
     el.querySelector(".more").addEventListener("click", function () { drawMore(st); });
     open();
   });
+
+  function commandRowEl(r) {
+    var tr = document.createElement("tr");
+    [0, 1, 2, 3, 4].forEach(function (i) {
+      var td = document.createElement("td");
+      td.textContent = r[i];
+      if (i === 0) td.className = "mono";
+      tr.appendChild(td);
+    });
+    var cmd = document.createElement("td");
+    cmd.className = "msg mono";
+    var text = document.createElement("span");
+    text.textContent = r[5];
+    cmd.appendChild(text);
+    if (r[6]) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "show all";
+      var open = false;
+      btn.addEventListener("click", function () {
+        open = !open;
+        text.textContent = open ? r[5] + r[6] : r[5];
+        btn.textContent = open ? "show less" : "show all";
+      });
+      cmd.appendChild(document.createTextNode(" "));
+      cmd.appendChild(btn);
+    }
+    if (r[8]) {
+      var badge = document.createElement("span");
+      badge.className = "sev small sev-high";
+      badge.textContent = "suspicious";
+      badge.title = r[8];
+      cmd.appendChild(document.createTextNode(" "));
+      cmd.appendChild(badge);
+    }
+    tr.appendChild(cmd);
+    var file = document.createElement("td");
+    file.className = "mono";
+    file.textContent = r[7];
+    tr.appendChild(file);
+    return tr;
+  }
+
+  (function () {
+    var el = document.getElementById("commands");
+    var rows = data.commands.rows;
+    var st = {el: el, rows: rows, filtered: rows, shown: 0, drawn: false, hay: null, build: commandRowEl};
+    states.push(st);
+    function open() {
+      if (el.open && !st.drawn) { st.drawn = true; refilter(st); }
+    }
+    el.addEventListener("toggle", open);
+    el.querySelector(".more").addEventListener("click", function () { drawMore(st); });
+    open();
+  })();
 
   var findingText = new Map();
   function applyFilter() {

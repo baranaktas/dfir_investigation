@@ -111,3 +111,14 @@ def test_duplicate_memory_console_and_vss_twins_counted_once(tmp_path):
     rows = collect_commands(store)
     assert sorted(r.command for r in rows) == ["dir", "whoami"]
     assert [r.source for r in rows if r.command == "whoami"] == [MEMORY_CONSOLE]
+
+
+def test_script_block_with_no_matching_evtx_rule_is_still_reported(tmp_path, monkeypatch):
+    monkeypatch.setenv("INVESTIGATION_HOME", str(tmp_path / "home"))
+    store = store_of(tmp_path, [
+        ev("evtx", Channel=PS, EventID=4104, ScriptBlockText="vssadmin delete shadows /all /quiet"),
+        ev("evtx", Channel=PS, EventID=4104, ScriptBlockText="powershell -nop -enc SQBFAFgA"),
+    ])
+    findings = {f.rule_id: f for f in CommandRules().detect(store, Context())}
+    assert set(findings) == {"INV-CMD-003"}
+    assert findings["INV-CMD-003"].events[0].fields["ScriptBlockText"].startswith("vssadmin")

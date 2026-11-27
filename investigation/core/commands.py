@@ -22,7 +22,6 @@ RUN_MRU = "RunMRU"
 
 SYSMON_CHANNEL = "Microsoft-Windows-Sysmon/Operational"
 PS_CHANNEL = "Microsoft-Windows-PowerShell/Operational"
-EVTX_PROCESS = (SECURITY_4688, SYSMON_1)
 ROW_HEAD = 300
 
 
@@ -34,14 +33,10 @@ class CommandPattern:
     mitre: tuple[str, ...]
     description: str
     regexes: tuple[str, ...]
-    covered_by_other_rules: frozenset[str] = frozenset()
 
     def compiled(self) -> list[re.Pattern[str]]:
         return [re.compile(r, re.IGNORECASE) for r in self.regexes]
 
-
-_PS_SOURCES = frozenset({PS_4104, PS_HISTORY, MEMORY_CMDLINE})
-_PROCESS_SOURCES = frozenset(EVTX_PROCESS)
 
 PATTERNS: tuple[CommandPattern, ...] = (
     CommandPattern(
@@ -50,17 +45,16 @@ PATTERNS: tuple[CommandPattern, ...] = (
         "Invoke-WebRequest/iwr/curl/wget.",
         (r"(?<![\w-])-(?:enc|encodedcommand|ec)\s", r"-e\s+(?:jab|sqb)", r"frombase64string", r"downloadstring",
          r"downloadfile", r"(?<![\w-])iex[\s(]", r"invoke-expression", r"net\.webclient",
-         r"-nop\w*\s+-w\w*\s+hidden", r"(?<![\w-])(?:invoke-webrequest|iwr|curl|wget|start-bitstransfer)\b[^|;\r\n]*https?://"),
-        _PS_SOURCES),
+         r"-nop\w*\s+-w\w*\s+hidden", r"(?<![\w-])(?:invoke-webrequest|iwr|curl|wget|start-bitstransfer)\b[^|;\r\n]*https?://")),
     CommandPattern(
         "INV-CMD-002", "Mimikatz or AMSI bypass", Severity.CRITICAL, ("T1003.001", "T1562.001"),
         "A command mentions Mimikatz or tampers with AMSI.",
-        (r"mimikatz", r"sekurlsa::", r"amsiutils", r"amsiinitfailed"), _PS_SOURCES),
+        (r"mimikatz", r"sekurlsa::", r"amsiutils", r"amsiinitfailed")),
     CommandPattern(
         "INV-CMD-003", "Shadow copy deletion or recovery disabled", Severity.CRITICAL, ("T1490",),
         "Shadow copies were deleted or recovery was disabled - the usual step before ransomware encryption.",
         (r"vssadmin(?:\.exe)?\s+delete\s+shadows", r"shadowcopy\s+delete", r"bcdedit.*recoveryenabled\s+no",
-         r"wbadmin\s+delete\s+(?:catalog|backup)"), _PROCESS_SOURCES),
+         r"wbadmin\s+delete\s+(?:catalog|backup)")),
     CommandPattern(
         "INV-CMD-004", "Event log cleared with wevtutil", Severity.HIGH, ("T1070.001",),
         "wevtutil was used to clear an event log.", (r"wevtutil(?:\.exe)?\s+(?:cl|clear-log)\b",)),
@@ -75,7 +69,7 @@ PATTERNS: tuple[CommandPattern, ...] = (
     CommandPattern(
         "INV-CMD-007", "File download with certutil or bitsadmin", Severity.HIGH, ("T1105", "T1218"),
         "certutil or bitsadmin used to download or decode a file.",
-        (r"certutil(?:\.exe)?\s+.*-(?:urlcache|decode)", r"bitsadmin(?:\.exe)?\s+.*/transfer"), _PROCESS_SOURCES),
+        (r"certutil(?:\.exe)?\s+.*-(?:urlcache|decode)", r"bitsadmin(?:\.exe)?\s+.*/transfer")),
     CommandPattern(
         "INV-CMD-008", "Scheduled task or service created from the command line", Severity.MEDIUM,
         ("T1053.005", "T1543.003"), "schtasks /create or sc create was run.",
